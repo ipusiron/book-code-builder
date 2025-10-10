@@ -1,0 +1,917 @@
+/**
+ * Book Code Builder - Stylesheet
+ *
+ * Architecture:
+ * - CSS Custom Properties for theming
+ * - Light/Dark mode via prefers-color-scheme
+ * - Mobile-first responsive design
+ * - BEM-like naming for components
+ *
+ * Sections:
+ * 1. CSS Variables (Light/Dark themes)
+ * 2. Base styles (html, body)
+ * 3. Layout (container, panels)
+ * 4. Components (buttons, tabs, inputs, etc.)
+ * 5. Utility classes
+ * 6. Mobile responsive overrides
+ */
+
+/* ========================================
+   1. CSS VARIABLES - LIGHT THEME
+   ======================================== */
+/**
+ * Light theme color palette
+ * Applied when: prefers-color-scheme is light or not set
+ */
+:root {
+  --bg: #fafafa;           /* Page background */
+  --fg: #1f2937;           /* Primary text color */
+  --muted: #6b7280;        /* Secondary text color */
+  --accent: #0ea5e9;       /* Brand color (links, buttons) */
+  --panel: #ffffff;        /* Card/panel background */
+  --border: #e5e7eb;       /* Border color */
+  --code: #111827;         /* Code text color */
+  --hl: #fff7cc;           /* Highlight background */
+  --error: #dc2626;        /* Error text color */
+  --error-bg: #fee2e2;     /* Error background */
+  --success: #16a34a;      /* Success text color */
+  --success-bg: #dcfce7;   /* Success background */
+  --warning: #ca8a04;      /* Warning text color */
+  --warning-bg: #fef9c3;   /* Warning background */
+}
+
+/* ========================================
+   DARK THEME
+   ======================================== */
+/**
+ * Dark theme color palette
+ * Applied when: prefers-color-scheme is dark
+ *
+ * Design notes:
+ * - Reduced contrast for eye comfort
+ * - Slightly desaturated colors
+ * - Darker highlight to prevent glare
+ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f172a;           /* Dark slate background */
+    --fg: #e2e8f0;           /* Light text */
+    --muted: #94a3b8;        /* Muted text */
+    --accent: #38bdf8;       /* Bright accent */
+    --panel: #1e293b;        /* Elevated panel */
+    --border: #334155;       /* Subtle border */
+    --code: #f1f5f9;         /* Code text */
+    --hl: #422006;           /* Dark highlight */
+    --error: #f87171;        /* Soft red */
+    --error-bg: #450a0a;     /* Dark red background */
+    --success: #4ade80;      /* Soft green */
+    --success-bg: #052e16;   /* Dark green background */
+    --warning: #fbbf24;      /* Soft yellow */
+    --warning-bg: #422006;   /* Dark yellow background */
+  }
+}
+
+/* ========================================
+   2. BASE STYLES
+   ======================================== */
+/**
+ * Universal box-sizing for predictable layouts
+ * Includes padding/border in element dimensions
+ */
+* { box-sizing: border-box; }
+
+/**
+ * Base styles for html and body
+ * - System font stack for native look
+ * - Japanese font support (Noto Sans JP, Hiragino, Meiryo)
+ * - Comfortable line-height for readability
+ */
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
+  line-height: 1.6;
+}
+
+/* ========================================
+   3. LAYOUT COMPONENTS
+   ======================================== */
+
+/**
+ * App header - Site title and subtitle
+ * Centered layout with generous top padding
+ */
+.app-header {
+  padding: 24px 16px 8px;
+  text-align: center;
+}
+.app-header h1 {
+  margin: 0;
+  font-size: 28px;
+  letter-spacing: 0.2px;
+}
+.subtitle {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/**
+ * Main container - Centers content with max-width
+ * Responsive: Full width on mobile, constrained on desktop
+ */
+.container {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+/**
+ * Panel - Card-like container for content sections
+ * - Elevated appearance with subtle shadow
+ * - Rounded corners for modern look
+ * - Border for definition in light mode
+ */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 0 rgba(0,0,0,0.02);
+}
+
+/* ========================================
+   4. FORM CONTROLS
+   ======================================== */
+
+/**
+ * Controls row - Flexible container for form inputs
+ * - Wraps on small screens
+ * - Even spacing between items
+ * - Vertically aligned
+ */
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin: 8px 0 12px;
+}
+.controls label {
+  font-size: 14px;
+}
+.controls input[type="number"] {
+  width: 90px;
+}
+
+/**
+ * Controls actions row - Right-aligned action buttons
+ * - Min-width prevents layout shift when button text changes
+ */
+.controls-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 0 12px;
+}
+.controls-actions button {
+  min-width: 160px;
+}
+
+/**
+ * Textarea - Input/output areas for text
+ * - Monospace font for cipher text readability
+ * - Vertical resize only (horizontal locked to container)
+ * - Fixed white background for consistency
+ */
+textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  background: #fff;
+  color: var(--fg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 14px;
+  resize: vertical;
+}
+
+/**
+ * Input with sync button pattern
+ * - Positioned absolutely above textarea
+ * - On mobile: Stacks vertically via media query
+ */
+.input-with-sync {
+  position: relative;
+  margin-bottom: 12px;
+}
+.input-with-sync textarea {
+  margin-bottom: 0;
+}
+
+/**
+ * Sync button - Transfers cipher text between tabs
+ * - Subtle styling to not compete with main buttons
+ * - Hover state changes to accent color
+ */
+.sync-btn {
+  position: absolute;
+  top: -32px;
+  right: 0;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  min-width: unset;
+}
+.sync-btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.sync-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.sync-btn span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Output with copy button */
+.output-with-copy {
+  position: relative;
+  margin-bottom: 12px;
+}
+.output-with-copy textarea {
+  margin-bottom: 0;
+}
+.copy-btn {
+  position: absolute;
+  top: -32px;
+  right: 0;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  min-width: unset;
+}
+.copy-btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.copy-btn span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ========================================
+   5. BUTTONS
+   ======================================== */
+
+/**
+ * Primary button - Main action buttons
+ * - Accent color for prominence
+ * - Disabled state with reduced opacity
+ * - Smooth transitions for hover/disabled states
+ */
+button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: filter 0.2s, opacity 0.2s;
+}
+button:hover { filter: brightness(0.95); }
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/**
+ * Secondary button variant - Less prominent actions
+ * - Neutral gray color
+ * - Used for pagination, navigation
+ */
+button.secondary {
+  background: #e5e7eb;
+  color: var(--fg);
+}
+@media (prefers-color-scheme: dark) {
+  button.secondary {
+    background: #374151;
+    color: var(--fg);
+  }
+}
+
+.stats {
+  margin-top: 12px;
+  font-size: 14px;
+  color: var(--muted);
+}
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.stat-item {
+  background: var(--bg);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--muted);
+}
+.stat-item strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+/* ========================================
+   6. TABS NAVIGATION
+   ======================================== */
+
+/**
+ * Tab bar - Horizontal navigation
+ * - Traditional tab appearance
+ * - Wraps on small screens
+ */
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin: 16px 0 0;
+  flex-wrap: wrap;
+  border-bottom: none;
+}
+
+/**
+ * Individual tab button
+ * - Rounded top corners only
+ * - Active tab connects visually to content panel
+ * - Negative margin trick for seamless border
+ */
+.tab {
+  background: var(--bg);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  padding: 12px 20px;
+  border-radius: 12px 12px 0 0;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s;
+  position: relative;
+  margin-bottom: 0;
+}
+.tab:hover {
+  color: var(--fg);
+  background: var(--panel);
+}
+.tab.active {
+  background: var(--panel);
+  color: var(--accent);
+  border-bottom: 1px solid var(--panel);  /* Hides border to connect with panel */
+  z-index: 1;
+  margin-bottom: -1px;  /* Overlaps panel border */
+}
+
+/**
+ * Tab content panels
+ * - Hidden by default, shown when active
+ * - Rounded corners except top-left (connected to tab)
+ */
+.tabcontent { display: none; }
+.tabcontent.active {
+  display: block;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 0 12px 12px 12px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+.viewer-controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+/* ========================================
+   7. CODEBOOK VIEWER
+   ======================================== */
+
+/**
+ * Viewer - Interactive codebook display
+ * - Dashed border for distinction from textareas
+ * - Scrollable with fixed max-height
+ * - Monospace for coordinate alignment
+ */
+.viewer {
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  padding: 12px;
+  min-height: 200px;
+  max-height: 500px;
+  overflow-y: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+}
+
+/**
+ * Line - One line in viewer
+ * Prefixed with [p:l] coordinate
+ */
+.line {
+  margin: 4px 0;
+}
+
+/**
+ * Word - Clickable word in viewer
+ * - Hover effect for interactivity
+ * - Active state when clicked
+ * - Smooth background transition
+ */
+.word {
+  padding: 1px 3px;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+.word:hover { background: #eef6ff; }
+.word.active { background: var(--hl); }
+
+/* ========================================
+   8. NOTIFICATION MESSAGES
+   ======================================== */
+
+/**
+ * Notes - Status/feedback messages
+ * Base styling for all note types
+ */
+.notes {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  padding: 8px 12px;
+  border-radius: 8px;
+}
+
+/* ========================================
+   9. PRESET BUTTONS
+   ======================================== */
+
+/**
+ * Preset button row - Quick sample/codebook selection
+ * - Flexbox wrapping for responsive layout
+ * - Label + buttons pattern
+ */
+.preset-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.preset-label {
+  font-size: 14px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/**
+ * Preset button - Individual preset selector
+ * - Subtle default state
+ * - Accent color on hover for clear affordance
+ */
+.preset-btn {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+.preset-btn:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.notes.error {
+  color: var(--error);
+  background: var(--error-bg);
+  border-left: 3px solid var(--error);
+}
+.notes.success {
+  color: var(--success);
+  background: var(--success-bg);
+  border-left: 3px solid var(--success);
+}
+.notes.warning {
+  color: var(--warning);
+  background: var(--warning-bg);
+  border-left: 3px solid var(--warning);
+}
+.notes.info {
+  color: var(--accent);
+  background: #dbeafe;
+  border-left: 3px solid var(--accent);
+}
+@media (prefers-color-scheme: dark) {
+  .notes.info {
+    background: #082f49;
+  }
+}
+
+footer .footer {
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+  padding: 16px 0 24px;
+}
+footer a { color: var(--accent); text-decoration: none; }
+footer a:hover { text-decoration: underline; }
+
+/* Focus states for accessibility */
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Tooltip */
+.tooltip {
+  position: relative;
+  display: inline-block;
+  cursor: help;
+  color: var(--accent);
+  font-weight: 700;
+  margin-left: 4px;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  text-align: center;
+  line-height: 14px;
+  font-size: 12px;
+  background: var(--panel);
+  transition: all 0.2s;
+}
+.tooltip:hover {
+  background: var(--accent);
+  color: var(--panel);
+}
+.tooltip .tooltiptext {
+  visibility: hidden;
+  width: 220px;
+  background-color: var(--code);
+  color: var(--panel);
+  text-align: left;
+  border-radius: 8px;
+  padding: 8px 10px;
+  position: absolute;
+  z-index: 1;
+  bottom: 125%;
+  left: 50%;
+  margin-left: -110px;
+  opacity: 0;
+  transition: opacity 0.3s;
+  font-size: 12px;
+  font-weight: normal;
+  line-height: 1.4;
+}
+.tooltip:hover .tooltiptext {
+  visibility: visible;
+  opacity: 1;
+}
+.tooltip .tooltiptext::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  margin-left: -5px;
+  border-width: 5px;
+  border-style: solid;
+  border-color: var(--code) transparent transparent transparent;
+}
+
+/* Viewer selection info */
+.viewer-selection {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: var(--bg);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--fg);
+  font-family: ui-monospace, monospace;
+  border: 1px solid var(--border);
+  line-height: 1.6;
+}
+.viewer-selection strong {
+  color: var(--accent);
+}
+
+/* ========================================
+   10. ACCORDION (HELP SECTIONS)
+   ======================================== */
+
+/**
+ * Accordion - Expandable/collapsible content sections
+ * Used in Help tab for organized information
+ * - Hover effect for interactivity
+ * - Smooth transitions
+ */
+.accordion {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 12px;
+  overflow: hidden;
+  transition: all 0.2s;
+}
+.accordion:hover {
+  border-color: var(--accent);
+}
+
+/**
+ * Accordion summary - Clickable header
+ * - Custom arrow indicator (▶ rotates to ▼ when open)
+ * - Removes default details marker
+ * - Prevents text selection for cleaner UX
+ */
+.accordion summary {
+  cursor: pointer;
+  padding: 14px 16px;
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--fg);
+  background: var(--bg);
+  user-select: none;
+  transition: all 0.2s;
+  list-style: none;
+  display: flex;
+  align-items: center;
+}
+.accordion summary::-webkit-details-marker {
+  display: none;
+}
+.accordion summary::before {
+  content: "▶";
+  display: inline-block;
+  width: 20px;
+  margin-right: 8px;
+  font-size: 12px;
+  transition: transform 0.2s;
+  color: var(--accent);
+}
+.accordion[open] summary::before {
+  transform: rotate(90deg);
+}
+.accordion summary:hover {
+  background: var(--panel);
+  color: var(--accent);
+}
+
+/**
+ * Accordion content - Revealed content area
+ * - Fade-in animation for smooth reveal
+ * - Elevated background for hierarchy
+ */
+.accordion-content {
+  padding: 16px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  animation: fadeIn 0.3s ease-in;
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.accordion-content h3 {
+  margin-top: 0;
+  margin-bottom: 12px;
+  font-size: 16px;
+  color: var(--accent);
+  border-bottom: 2px solid var(--border);
+  padding-bottom: 6px;
+}
+.accordion-content h4 {
+  margin-top: 16px;
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: var(--fg);
+}
+.accordion-content p {
+  margin: 8px 0;
+  line-height: 1.7;
+}
+.accordion-content ul, .accordion-content ol {
+  margin: 8px 0;
+  padding-left: 24px;
+}
+.accordion-content li {
+  margin: 6px 0;
+  line-height: 1.6;
+}
+.accordion-content code {
+  background: var(--bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--code);
+  border: 1px solid var(--border);
+}
+.note-box {
+  padding: 12px 14px;
+  border-radius: 8px;
+  margin: 12px 0;
+  line-height: 1.6;
+}
+.note-box.info {
+  background: #dbeafe;
+  border-left: 3px solid var(--accent);
+  color: var(--code);
+}
+.note-box.warning {
+  background: var(--warning-bg);
+  border-left: 3px solid var(--warning);
+  color: var(--code);
+}
+@media (prefers-color-scheme: dark) {
+  .note-box.info {
+    background: #082f49;
+    color: var(--fg);
+  }
+  .note-box.warning {
+    color: var(--fg);
+  }
+}
+
+/* Mobile responsive styles */
+/* ========================================
+   11. UTILITY CLASSES
+   ======================================== */
+
+/**
+ * Hidden - Visibility control (replaces inline style display:none)
+ * Used for dynamic show/hide via classList
+ */
+.hidden {
+  display: none;
+}
+
+/**
+ * Line number - Muted color for coordinate prefixes
+ * Used in viewer for [p:l] display
+ */
+.line-number {
+  color: #9ca3af;
+}
+
+/**
+ * Coordinate highlight - Emphasized coordinate display
+ * Used in viewer selection info to highlight current coordinate
+ */
+.coord-highlight {
+  background: var(--hl);
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
+/* ========================================
+   12. RESPONSIVE DESIGN (MOBILE)
+   ======================================== */
+
+/**
+ * Mobile breakpoint: 640px and below
+ *
+ * Changes:
+ * - Stacked layouts instead of horizontal
+ * - Full-width buttons
+ * - Larger touch targets (min 44px)
+ * - Font-size: 16px on inputs to prevent iOS zoom
+ * - Repositioned floating buttons (sync, copy)
+ */
+@media (max-width: 640px) {
+  .container {
+    padding: 12px;
+  }
+
+  /* Stack controls vertically */
+  .controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .controls label {
+    width: 100%;
+  }
+
+  .controls input[type="number"] {
+    width: 100%;
+  }
+
+  .controls-actions {
+    justify-content: stretch;
+  }
+
+  .controls-actions button {
+    width: 100%;
+    min-width: unset;
+    padding: 12px;  /* Larger touch target */
+  }
+
+  /* Tabs remain horizontal but adapt sizing */
+  .tabs {
+    flex-wrap: wrap;
+    gap: 2px;
+  }
+
+  .tab {
+    flex: 1 1 auto;
+    padding: 12px 8px;
+    min-height: 44px;  /* Minimum touch target size (Apple HIG) */
+    text-align: center;
+    font-size: 13px;
+  }
+
+  .viewer-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .viewer-controls label {
+    width: 100%;
+  }
+
+  .viewer-controls input {
+    width: 100%;
+  }
+
+  .viewer-controls button {
+    width: 100%;
+    padding: 12px;
+  }
+
+  /* Prevent iOS auto-zoom on input focus */
+  textarea {
+    font-size: 16px; /* iOS zooms if font-size < 16px */
+  }
+
+  /* 2-column grid for stats on mobile */
+  .stats-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  /**
+   * Reposition floating buttons on mobile
+   * - Move from absolute (desktop) to static (mobile)
+   * - Stack vertically above textareas
+   * - column-reverse: Button appears above textarea
+   */
+  .sync-btn {
+    position: static;
+    width: 100%;
+    margin-bottom: 8px;
+  }
+
+  .input-with-sync {
+    display: flex;
+    flex-direction: column-reverse;
+  }
+
+  .copy-btn {
+    position: static;
+    width: 100%;
+    margin-bottom: 8px;
+  }
+
+  .output-with-copy {
+    display: flex;
+    flex-direction: column-reverse;
+  }
+}
+
+/* ========================================
+   END OF STYLESHEET
+   ======================================== */

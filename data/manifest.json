@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "codebooks": [
+    {
+      "id": "us-declaration-independence",
+      "title": "Declaration of Independence (アメリカ独立宣言)",
+      "filename": "United States Declaration of Independence.txt",
+      "description": "1776年アメリカ独立宣言",
+      "source": "Project Gutenberg",
+      "sourceUrl": "https://www.gutenberg.org/ebooks/1"
+    },
+    {
+      "id": "aesops-fables",
+      "title": "Aesop's Fables (イソップ物語)",
+      "filename": "Aesop's Fables.txt",
+      "description": "古典的な寓話集であるイソップ物語の一部",
+      "source": "Project Gutenberg",
+      "sourceUrl": "https://www.gutenberg.org/ebooks/11339"
+    },
+    {
+      "id": "king-james-bible",
+      "title": "The King James Bible (欽定訳聖書)",
+      "filename": "The King James Version of the Bible.txt",
+      "description": "1611年欽定訳聖書の冒頭",
+      "source": "Project Gutenberg",
+      "sourceUrl": "https://www.gutenberg.org/ebooks/10"
+    }
+  ]
+}
