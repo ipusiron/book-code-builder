@@ -1,11 +1,37 @@
 <!--
 ---
-title: Book Code Builder
-category: classical-cryptography
-difficulty: 2
-description: Web-based simulator to encode and decode messages using historical book codes (page:line:word system).
-tags: [code, book-code, historical, education, javascript]
-demo: https://ipusiron.github.io/book-code-builder/
+id: day099
+slug: book-code-builder
+
+title: "Book Code Builder"
+
+subtitle_ja: "書籍暗号支援ツール"
+subtitle_en: "Historical Book Code Simulator"
+
+description_ja: "歴史的な書籍暗号（Book Code）を体験できる教育用ツール。任意のテキストをコードブックとして、平文をpage:line:word座標に暗号化・復号できます。"
+description_en: "Educational tool for exploring historical book codes. Encode plaintext into page:line:word coordinates using any text as a codebook, and decode cipher text back to plaintext."
+
+category_ja:
+  - 古典暗号
+  - コード
+category_en:
+  - Classical Cryptography
+  - Code Cipher
+
+difficulty: 3
+
+tags:
+  - book-code
+  - cipher
+  - cryptography
+  - historical
+  - education
+  - javascript
+
+repo_url: "https://github.com/ipusiron/book-code-builder"
+demo_url: "https://ipusiron.github.io/book-code-builder/"
+
+hub: true
 ---
 -->
 
