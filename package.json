@@ -1,0 +1,6 @@
+{
+  "name": "book-code-builder",
+  "private": true,
+  "scripts": { "test": "node --test" },
+  "engines": { "node": ">=22" }
+}
