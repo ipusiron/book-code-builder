@@ -117,7 +117,8 @@ function copyToClipboard(text, button) {
   button.disabled = true;
   button.textContent = t(task.key);
   const finish = key => {
-    if (copyTasks.get(selector) !== task) return;
+    if (copyTasks.get(selector) !== task || task.finished) return;
+    task.finished = true;
     clearTimeout(task.timeout);
     task.key = key;
     button.textContent = t(key);
@@ -562,15 +563,57 @@ function updatePaginationButtons() {
  * - Active class controls visibility via CSS
  */
 function setupTabs() {
-  $$('.tab').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const tabId = btn.getAttribute('data-tab');
-      $$('.tab').forEach(b => b.classList.remove('active'));
-      $$('.tabcontent').forEach(c => c.classList.remove('active'));
-      btn.classList.add('active');
-      $(`#${tabId}`).classList.add('active');
+  const tabs = $$('.tab');
+  $('.tabs').setAttribute('role', 'tablist');
+  function activate(selected, focus = false) {
+    tabs.forEach((button, index) => {
+      const active = index === selected;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-selected', String(active));
+      button.tabIndex = active ? 0 : -1;
+      const panel = $('#' + button.dataset.tab);
+      panel.classList.toggle('active', active);
+      panel.hidden = !active;
+    });
+    if (focus) tabs[selected].focus();
+  }
+  tabs.forEach((button, index) => {
+    button.id = 'tab-' + button.dataset.tab;
+    button.setAttribute('role', 'tab');
+    button.setAttribute('aria-controls', button.dataset.tab);
+    const panel = $('#' + button.dataset.tab);
+    panel.setAttribute('role', 'tabpanel');
+    panel.setAttribute('aria-labelledby', button.id);
+    button.addEventListener('click', () => activate(index));
+    button.addEventListener('keydown', event => {
+      const next = { ArrowRight: (index + 1) % tabs.length, ArrowLeft: (index + tabs.length - 1) % tabs.length,
+        Home: 0, End: tabs.length - 1 }[event.key];
+      if (next !== undefined) { event.preventDefault(); activate(next, true); }
     });
   });
+  activate(0);
+}
+
+function refreshLanguage() {
+  for (const [selector, message] of statusMessages) {
+    setNote($(selector), t(message.key, message.values), message.type);
+  }
+  $('#buildBtn').textContent = t(state.building ? 'building' : 'build');
+  if (state.ready) $('#stats').textContent = t('stats', state.totals);
+  for (const selector of ['#copyCipherBtn', '#copyPlainBtn']) {
+    $(selector).textContent = t(copyTasks.get(selector)?.key || 'copy');
+  }
+  $$('#codebookPresets [data-book]').forEach(button => {
+    const key = 'book_' + button.dataset.book;
+    button.textContent = BookCodeMessages.ja[key] ? t(key) : button.dataset.title;
+  });
+  const selected = state.selection;
+  renderViewer($('#viewPage').value, $('#viewLine').value);
+  state.selection = selected;
+  if (selected) {
+    $$('#viewer .word').forEach(button => button.classList.toggle('active', button.dataset.coord === selected.coord));
+    renderSelection();
+  }
 }
 
 // -------------------- Plaintext Presets --------------------
@@ -721,7 +764,8 @@ async function setupCodebookPresets() {
     btn.type = 'button';
     btn.className = 'preset-btn';
     btn.dataset.book = entry.id;
-    btn.textContent = entry.title;
+    btn.dataset.title = entry.title;
+    btn.textContent = BookCodeMessages.ja['book_' + entry.id] ? t('book_' + entry.id) : entry.title;
     btn.addEventListener('click', () => loadCodebook(entry.filename));
     container.appendChild(btn);
   });
@@ -787,8 +831,8 @@ async function init() {
 
   // Viewer controls
   $('#viewBtn').addEventListener('click', () => {
-    const p = +$('#viewPage').value || 1;
-    const l = +$('#viewLine').value || 1;
+    const p = $('#viewPage').value;
+    const l = $('#viewLine').value;
     renderViewer(p, l);
   });
 
@@ -836,6 +880,7 @@ async function init() {
 
   // Tabs
   setupTabs();
+  document.addEventListener('languagechange', refreshLanguage);
 
   // Do not replace text if the user has already edited it during manifest loading.
   const ticket = revision;

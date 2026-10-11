@@ -13,7 +13,7 @@ function harness() {
       id: selector.slice(1), value: '', checked: true, disabled: false, textContent: '', innerHTML: '', dataset: {},
       classList: { add() {}, remove() {}, toggle() {} },
       replaceChildren() {}, append() {},
-      querySelectorAll: () => [], focus() {}, addEventListener() {},
+      querySelectorAll: () => [], focus() {}, addEventListener() {}, setAttribute() {},
     });
     return elements.get(selector);
   };

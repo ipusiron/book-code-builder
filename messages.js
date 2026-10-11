@@ -28,7 +28,40 @@
     occurrenceLimit: '座標は先頭100件を表示しています。',
     errorNote: '変換できませんでした。',
   };
-  const api = { ja };
+  const en = {
+    build: 'Build index', building: 'Building...', dirty: 'The reference text or settings changed. Build the index to continue.',
+    ready: 'Index ready. You can encode and decode.', needBuild: 'Build the index before encoding or decoding.',
+    empty: 'The input is empty.', encoded: 'All words encoded. Words: {n}.',
+    missing: 'Missing words ({n}): {words}', decoded: 'Decoded to a sequence of normalized words.',
+    badCodes: 'Invalid or out-of-range coordinates: {n}. Marked as [?].',
+    stats: 'Pages: {pages} / Lines: {lines} / Words: {words} / Unique words: {unique}',
+    changed: 'The input changed. Run the conversion again.', loading: 'Loading the codebook...',
+    loaded: 'Codebook loaded.', loadFailed: 'Loading failed. Your text is unchanged. Rebuild the index to continue.',
+    catalogFailed: 'The preset list could not be loaded. You can use the built-in sample or enter your own text.',
+    fileMode: 'Opened as a local file. The three preset books require HTTP serving. The built-in sample and manual input are available.',
+    error_textType: 'Enter text.', error_textLimit: 'The text exceeds the length limit. Shorten the input.',
+    error_integer: 'Lines per page must be an integer from 1 to 200.',
+    error_lineLimit: 'Limit the reference text to 50,000 lines.', error_wordLimit: 'Limit the reference text to 100,000 words.',
+    error_tokenLimit: 'Each conversion accepts up to 10,000 words or 10,000 coordinates.',
+    error_noWords: 'No words were found. Enter letters or numbers.', error_noCodes: 'Enter coordinates to decode.',
+    error_unknown: 'Processing failed. Check the input and settings.',
+    authStop: 'Loading stopped after HTTP 401. This page will not retry.',
+    copy: '📋 Copy', copying: 'Copying...', copied: '✓ Copied', copyFailed: 'Copy failed. Select and copy the result manually.',
+    copyUnsupported: 'Automatic copying is unavailable. Select and copy the result manually.',
+    viewerInvalid: 'Enter a valid page number and line number.', viewerEmpty: 'No index is available. Build the index first.',
+    viewerLimit: 'Showing up to 100 lines and 2,000 words from the selected line. Check the reference text for omitted content. Select a later line to view it.',
+    selection: 'Selected: {coord} → {word} / Occurrences: {n}', occurrenceLimit: 'Only the first 100 coordinates are shown.',
+    errorNote: 'Conversion failed.',
+  };
+  const books = {
+    'us-declaration-independence': ['Declaration of Independence (アメリカ独立宣言)', 'Declaration of Independence'],
+    'aesops-fables': ["Aesop's Fables (イソップ物語)", "Aesop's Fables"],
+    'king-james-bible': ['The King James Bible (欽定訳聖書)', 'The King James Bible'],
+  };
+  for (const [id, titles] of Object.entries(books)) {
+    ja['book_' + id] = titles[0]; en['book_' + id] = titles[1];
+  }
+  const api = { ja, en };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.BookCodeMessages = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
