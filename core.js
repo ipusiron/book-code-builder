@@ -7,7 +7,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
   const LIMITS = Object.freeze({ reference: 1000000, words: 100000, lines: 50000,
-    plain: 20000, cipher: 100000, tokens: 10000, lpp: 200, viewWords: 2000, viewLines: 100, occurrences: 100 });
+    plain: 20000, cipher: 100000, decoded: 1000000, tokens: 10000, lpp: 200, viewWords: 2000, viewLines: 100, occurrences: 100 });
   // Keep the coordinate convention: ASCII apostrophe/hyphen only; no linguistic segmentation.
   const WORD_RE = /[\p{L}\p{N}]+(?:[-'][\p{L}\p{N}]+)*/gu;
 
@@ -66,6 +66,7 @@
     if (!words.length) fail('noWords');
     const next = new Map(pointers);
     const missing = [];
+    let length = 0;
     const codes = words.map(word => {
       const locations = book.index.get(word);
       if (!locations) { missing.push(word); return '{???}'; }
@@ -74,6 +75,8 @@
       if (roundRobin) next.set(word, (pointer + 1) % locations.length);
       return `${p}:${l}:${w}`;
     });
+    for (const code of codes) length += code.length;
+    if (length + codes.length - 1 > LIMITS.cipher) fail('outputLimit');
     return { text: codes.join(' '), missing, pointers: next, count: words.length };
   }
   function parseCodeTokens(raw) {
@@ -90,10 +93,14 @@
     const tokens = parseCodeTokens(raw);
     if (!tokens.length) fail('noCodes');
     let bad = 0;
+    let length = 0;
     const words = tokens.map(t => {
       const word = t && book.structure[t[0] - 1]?.[t[1] - 1]?.[t[2] - 1];
-      if (!word) { bad++; return '[?]'; }
-      return word;
+      const value = word || '[?]';
+      if (!word) bad++;
+      length += value.length + (length ? 1 : 0);
+      if (length > LIMITS.decoded) fail('outputLimit');
+      return value;
     });
     return { text: words.join(' '), bad, count: tokens.length };
   }

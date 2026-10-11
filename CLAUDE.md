@@ -1,127 +1,118 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Shared guidance for coding agents working in this repository.
 
-## Project Overview
+## Project overview
 
-**Book Code Builder** is a web-based educational tool for exploring historical book codes (cipher systems that use text as a codebook). Users encode plaintext into `page:line:word` coordinates and decode these coordinates back to plaintext.
+Book Code Builder is an educational page:line:word codebook simulator.
+It is not suitable for protecting secrets. Decoding returns normalized words, not the original punctuation or formatting.
+Do not describe round-robin as random, always producing different output, or guaranteeing security.
 
-This is a pure client-side application (HTML/CSS/JavaScript) with no build process or dependencies. It runs entirely in the browser and is deployed via GitHub Pages.
+## Run and test
 
-## Running the Application
+No build or runtime dependencies. Open index.html directly for the built-in sample and manual input.
+The three file-based presets require HTTP serving:
 
-Open `index.html` directly in a browser:
-```bash
-start index.html
+```sh
+python -m http.server 8000 --bind 127.0.0.1
+npm test
 ```
 
-No build, compilation, or server required. All functionality is self-contained.
+Tests require Node.js 22 or later; no npm install is needed.
+CI runs npm test on push and pull_request.
+Do not add dependencies or change book texts just to make tests pass.
 
 ## Architecture
 
-### Core Data Structures (script.js)
+- core.js: UMD/CommonJS pure functions, validation and LIMITS
+- script.js: input snapshot, build/load revisions, clipboard tasks, tabs and viewer
+- messages.js: Japanese/English dynamic strings and book titles
+- static-messages.js: static UI translations keyed by Japanese source text
+- i18n.js: URL/saved/browser language selection, text-node updates and languagechange
+- index.html/style.css: semantic controls, system theme and responsive layout
 
-**State object** (`state` at script.js:177-192):
-- `structure`: 3D array `[page][line][word]` for coordinate-to-word lookup (0-indexed internally, 1-indexed in UI)
-- `index`: Map of `normalizedWord -> [{p, l, w}, ...]` for word-to-coordinates lookup
-- `rr`: Round-robin pointer Map tracking next coordinate to use for each word
-- `useRoundRobin`: Boolean flag to enable/disable round-robin allocation (default: true)
-- `normalizedLines`: Flat array of normalized text lines for viewer reconstruction
-- `totals`: Aggregate statistics (pages, lines, words, unique words)
+The core returns structure[page][line][word] (zero-based internally), index Map of words to one-based coordinates, normalizedLines and totals.
+encode returns a new pointer Map; the caller commits it only on success.
+The UI snapshot includes the reference text, lines per page and both normalization flags.
 
-### Key Functions
+## Coordinate convention
 
-| Function | Location | Purpose |
-|----------|----------|---------|
-| `buildIndex()` | script.js:216-303 | Builds inverted index from reference text |
-| `encrypt()` | script.js:342-395 | Encodes plaintext to p:l:w coordinates |
-| `decrypt()` | script.js:465-501 | Decodes p:l:w coordinates to plaintext |
-| `renderViewer()` | script.js:520-584 | Displays codebook with clickable words |
-| `normalizeText()` | script.js:50-55 | Applies case folding and NFKC normalization |
-| `tokenize()` | script.js:82-84 | Extracts words using Unicode-aware regex |
-| `escapeHtml()` | script.js:148-152 | XSS prevention for innerHTML |
-| `validateFilename()` | script.js:700-714 | Path traversal prevention |
+Apply NFKC then toLowerCase if enabled. Split LF, CRLF or CR, including blank lines and a final empty line.
+Group lines by lpp (integer 1–200, default 40).
+Tokenize with:
 
-### Key Regex
-
-**Word tokenization** (`WORD_RE` at script.js:75):
 ```javascript
-/[\p{L}\p{N}]+(?:[-'''][\p{L}\p{N}]+)*/gu
+/[\p{L}\p{N}]+(?:[-'][\p{L}\p{N}]+)*/gu
 ```
-Matches Unicode letters/numbers with optional internal hyphens/apostrophes (e.g., "don't", "co-operate", "abc123").
 
-### UI Flow
+Only ASCII hyphen/apostrophe joins are allowed. A curly apostrophe splits a word; continuous Japanese is not linguistically segmented.
+Changing this convention or bundled text changes coordinates and requires explicit compatibility design.
 
-1. **Reference Text panel**: Select codebook preset or paste custom text, then "Build Index"
-2. **Encrypt tab**: Input plaintext -> outputs space-separated `p:l:w` codes
-3. **Decrypt tab**: Input `p:l:w` codes -> outputs reconstructed plaintext
-4. **Viewer tab**: Interactive page browser with click-to-highlight word selection
-5. **Help tab**: Usage instructions (accordion-style)
+## State invariants
 
-## Code Conventions
+- Editing reference text, lpp or normalization invalidates the index and both results immediately.
+- Building and dirty states cannot encode/decode.
+- Editing plaintext/ciphertext, samples and sync clears the corresponding stale result.
+- Round-robin toggling resets cycle positions and the encoded result.
+- Language switching must preserve input, output, snapshot, cycle positions and viewer selection.
+- Old build callbacks or file responses must never overwrite newer input.
+- A failed load preserves the input; rebuilding is required.
+- Late clipboard completions cannot reactivate invalid results.
 
-- **DOM utilities**: `$()` for `querySelector`, `$$()` for `querySelectorAll` (script.js:35-36)
-- **XSS prevention**: Always use `escapeHtml()` before innerHTML, prefer `textContent` when possible
-- **CSP compliance**: No inline styles or scripts; use CSS classes for dynamic styling
-- **Button state**: Functions like `updateEncryptButton()`, `updateDecryptButton()` manage disabled states
+## Limits and display
 
-## Security Implementation
+The source of truth is BookCodeCore.LIMITS:
+reference 1,000,000 UTF-16 code units, words 100,000, lines 50,000,
+plaintext 20,000, ciphertext input/output 100,000, decoded output 1,000,000,
+conversion tokens 10,000, lpp 200.
+Check lengths after normalization as well as before it.
+Reject oversized input/output without partial success or pointer advancement.
 
-### Content Security Policy (index.html)
-- `script-src 'self'` - No inline scripts or eval
-- `style-src 'self'` - No inline styles
-- `connect-src 'self'` - Fetch only from same origin
+Viewer: up to 100 lines / 2,000 words from the requested line.
+Word labels: first 120 code units plus ellipsis. Occurrence lists: first 100 coordinates.
+Display truncation does not truncate the index or totals.
+Computation is synchronous on the main thread; setTimeout is not background processing.
 
-### XSS Prevention
-- `escapeHtml()` for all user content before innerHTML
-- `textContent` for simple text updates
-- `textarea.value` for input/output (no HTML parsing)
+## Security and privacy
 
-### Path Traversal Prevention
-- `validateFilename()` allows only: alphanumeric, spaces, hyphens, underscores, apostrophes, `.txt` extension
-- Rejects `/`, `\`, `..` characters
+Use createElement, textContent, text nodes and textarea.value for user-derived values. Never interpolate input into HTML.
+Keep scripts/styles external and preserve the CSP. Do not add ineffective HTTP-header meta tags.
+Validate manifest shape, unique ids and filenames; read only data/ filenames via encodeURIComponent.
+Reject redirects, bound loading by size and 10-second timeout, use credentials:omit.
+After HTTP 401, stop file loading on the current page rather than retrying.
 
-## Testing
+Only the selected UI language is stored. Do not persist or upload reference text, inputs, results or keys.
+Storage denial must not break the app.
+Clipboard failure must offer a manual selection/copy path.
 
-No automated tests. Manual testing via browser:
-1. Verify encoding -> decoding round-trip produces original text
-2. Test edge cases: words not in codebook (`{???}`), invalid coordinates (`[?]`), empty input
-3. Check round-robin behavior with repeated words
-4. Test normalization toggles (case/NFKC)
-5. Verify viewer page navigation and word highlighting
-6. Test codebook presets loading from `data/manifest.json`
+## Presets and documentation
+
+See data/README.md for source metadata, adding entries and rights notices.
+Keep the three .txt files unchanged unless a task explicitly requires a coordinate-affecting text change.
+Use the eBook id printed in each file for source URLs.
+Descriptions/source fields are maintenance metadata, not UI tooltips.
+Add localized book titles to messages.js.
+
+Maintain full README.md / README.en.md section and example parity.
+Keep warnings equally strong in both languages.
+Use actual core results for examples; a flag with punctuation is not restored automatically.
+Update screenshots when the UI changes, preserving backups before overwriting.
+
+## Browser verification
+
+Check Chromium and Firefox over HTTP and file URLs, Japanese/English, light/dark,
+320/390/768/1280px, keyboard tabs and word buttons, delayed/failed loading,
+storage denial, clipboard rejection and language switching after results.
+Report Safari, physical-device and screen-reader checks as unverified unless actually run.
 
 ## Deployment
 
-GitHub Pages deployment:
-- `.nojekyll` file prevents Jekyll processing
-- Push to `main` branch automatically updates https://ipusiron.github.io/book-code-builder/
+GitHub Pages serves main at https://ipusiron.github.io/book-code-builder/.
+.nojekyll disables Jekyll processing.
+Use a work branch and PR; verify CI before ordinary merge, then verify the deployed files and UI.
+Do not force-push or rewrite shared history.
 
-## Adding Codebook Presets
+## Further documentation
 
-1. Place text file in `data/` folder (e.g., `data/my-book.txt`)
-2. Add entry to `data/manifest.json`:
-   ```json
-   {
-     "id": "my-book",
-     "title": "My Book",
-     "filename": "my-book.txt",
-     "description": "Optional tooltip text"
-   }
-   ```
-3. Reload page - preset button appears automatically
-
-**Recommended file size**: 100KB-5MB. Larger files may cause browser lag.
-
-## Known Limitations
-
-- Line-based page splitting (not physical book pages)
-- No punctuation encoding (only words)
-- Case/NFKC normalization must match between encoder/decoder
-- No persistence (state lost on page reload)
-- Round-robin pointer advances each encryption (same plaintext produces different ciphertext)
-
-## Additional Documentation
-
-- **README.md**: Project overview, historical context, usage scenarios (Japanese)
-- **TECHNICAL.md**: Detailed algorithm explanations, data structure design, security implementation details (Japanese)
+- README.md / README.en.md: scope, examples, limitations and usage
+- TECHNICAL.md: core API, data structures, state transitions, limits and CSP (Japanese)

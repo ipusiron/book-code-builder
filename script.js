@@ -8,8 +8,7 @@
 // This application implements the following security measures:
 //
 // 1. XSS Prevention:
-//    - escapeHtml() function used for all user-provided content before innerHTML
-//    - textContent used for simple text updates (safer than innerHTML)
+//    - textContent and text nodes used for all user-derived display strings
 //    - textarea.value used for user input/output (no HTML parsing)
 //
 // 2. Path Traversal Prevention:
@@ -22,7 +21,7 @@
 //    - No eval() or inline scripts used
 //
 // 4. Input Validation:
-//    - Numeric inputs validated with Math.max/min
+//    - Numeric inputs validated as positive safe integers within bounds
 //    - Coordinate parsing uses regex with strict format (p:l:w)
 //    - File loading from trusted manifest.json only
 //
@@ -69,7 +68,6 @@ function normalizeText(str, options) {
  * - g: Global (find all matches)
  * - u: Unicode mode (enables \p{} patterns)
  */
-const WORD_RE = /[\p{L}\p{N}]+(?:[-'''][\p{L}\p{N}]+)*/gu;
 
 /**
  * Extract words from a line of text
@@ -137,16 +135,6 @@ function copyToClipboard(text, button) {
   } catch (_) { finish('copyFailed'); }
 }
 
-// Security: Escape HTML special characters to prevent XSS
-// This function converts user-provided strings into safe HTML by escaping:
-//   < to &lt;, > to &gt;, & to &amp;, " to &quot;, ' to &#39;
-// Used before inserting user content into innerHTML
-function escapeHtml(str){
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
-
 // -------------------- State --------------------
 /**
  * Global state object for codebook indexing
@@ -205,8 +193,8 @@ const state = {
  * 7. Update UI with stats and reset viewer
  *
  * Performance:
- * - Uses setTimeout to prevent UI blocking during indexing
- * - Efficient for texts up to ~5MB
+ * - setTimeout lets the building indicator paint before synchronous computation
+ * - Computation still runs on the main thread; core limits bound accepted input
  *
  * Time complexity: O(n) where n is total number of words
  * Space complexity: O(n) for index storage
@@ -353,8 +341,8 @@ function setNote(element, message, type = '') {
  * - Example: "the" appears 100 times → uses all 100 coordinates in rotation
  *
  * Security note:
- * - Round-robin ON improves resistance to frequency analysis
- * - Round-robin OFF makes cipher vulnerable to frequency attacks
+ * - Round-robin distributes occurrences across coordinates deterministically
+ * - Neither mode is suitable for protecting secrets
  */
 function encrypt() {
   resetResult('encrypt');
@@ -439,8 +427,8 @@ function updateCopyPlainButton() {
  * - Out of range: "999:999:999" → [?]
  * - Counts errors and displays warning
  *
- * Note: Decryption always succeeds if coordinates are valid,
- * regardless of normalization settings (uses pre-normalized structure)
+ * Note: Coordinates refer to this exact indexed text and its normalization settings.
+ * A valid coordinate in a different book can silently return a different word.
  */
 function decrypt() {
   resetResult('decrypt');
@@ -460,17 +448,17 @@ function decrypt() {
 /**
  * Render codebook viewer with clickable words
  * @param {number} pageNum - Page number to display (1-indexed)
- * @param {number} lineNum - Line number (currently unused, kept for future use)
+ * @param {number} lineNum - First line to display (1-indexed)
  *
  * Features:
- * - Shows one page at a time
+ * - Shows up to 100 lines and 2,000 words from the selected line
  * - Each line prefixed with [p:l] coordinate
- * - Words are clickable to show all occurrences
+ * - Words are buttons that show occurrence counts and up to 100 coordinates
  * - Pagination buttons for navigation
  *
  * Word click behavior:
  * - Highlights clicked word
- * - Shows all coordinates where this word appears
+ * - Shows the first 100 coordinates where this word appears
  * - Highlights current coordinate in the list
  */
 function renderViewer(pageNum, lineNum) {
@@ -621,8 +609,8 @@ function refreshLanguage() {
  * Sample plaintext for quick testing
  *
  * Preset 1: Short message (5 words)
- * Preset 2: Medium message (10 words) - spy scenario
- * Preset 3: Long message (28 words) - from Aesop's Fables
+ * Preset 2: Medium message (9 words) - spy scenario
+ * Preset 3: Long message (23 words) - based on Aesop's Fables
  */
 const PLAINTEXT_PRESETS = {
   1: "this is a secret message",
@@ -652,7 +640,7 @@ function setPlaintextPreset(presetId) {
  * - Classic fable with moral lesson
  * - Good word variety for testing
  * - Contains repeated words for round-robin testing
- * - ~100 words, suitable for demonstration
+ * - 155 tokens under the default normalization settings
  */
 const SAMPLE = `The Project Gutenberg eBook of Aesop's Fables.
 

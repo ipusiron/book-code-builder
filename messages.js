@@ -27,6 +27,7 @@
     selection: '選択：{coord} → {word} ／ 出現数：{n}',
     occurrenceLimit: '座標は先頭100件を表示しています。',
     errorNote: '変換できませんでした。',
+    error_outputLimit: '出力が上限を超えます。暗号文は100,000、復号結果は1,000,000コード単位までです。入力を短くしてください。',
   };
   const en = {
     build: 'Build index', building: 'Building...', dirty: 'The reference text or settings changed. Build the index to continue.',
@@ -52,6 +53,7 @@
     viewerLimit: 'Showing up to 100 lines and 2,000 words from the selected line. Check the reference text for omitted content. Select a later line to view it.',
     selection: 'Selected: {coord} → {word} / Occurrences: {n}', occurrenceLimit: 'Only the first 100 coordinates are shown.',
     errorNote: 'Conversion failed.',
+    error_outputLimit: 'Output exceeds the limit: 100,000 code units for ciphertext or 1,000,000 for decoded words. Shorten the input.',
   };
   const books = {
     'us-declaration-independence': ['Declaration of Independence (アメリカ独立宣言)', 'Declaration of Independence'],

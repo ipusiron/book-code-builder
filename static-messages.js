@@ -172,6 +172,7 @@
     'ラウンドロビンOFFの場合、頻度分析攻撃に極めて脆弱です': 'With round-robin off, the code is particularly vulnerable to frequency analysis.',
     '参照文は1,000,000コード単位、100,000語、50,000行まで。平文は20,000、暗号文は100,000コード単位まで': 'Reference limits: 1,000,000 code units, 100,000 words and 50,000 lines. Plaintext: 20,000 code units. Ciphertext: 100,000 code units.',
     '1回の変換は10,000語または10,000座標まで。超過は切り捨てず拒否します': 'Each conversion accepts up to 10,000 words or 10,000 coordinates. Oversized input is rejected, not truncated.',
+    '出力は暗号文100,000、復号結果1,000,000コード単位まで。短い座標から巨大な文章が作られることを防ぎます': 'Output limits: 100,000 code units for ciphertext and 1,000,000 for decoded words. This prevents short coordinates from expanding into enormous text.',
     '句読点、元の改行、余分な空白は復元しません。復号結果は正規化後の単語を空白でつないだものです': 'Punctuation, original line breaks and extra whitespace are not restored. Decoding joins normalized words with spaces.',
     '日本語の連続文は1語扱いです。単語の内部に使える区切りはASCIIのハイフンとアポストロフィです。don’tはdonとtに分かれます': 'Continuous Japanese text is treated as one token. Only ASCII hyphens and apostrophes can join parts of a word. The curly-apostrophe form don’t splits into don and t.',
     '入力や結果は保存しません。保存するのは選択した表示言語のみです。コピーした内容はクリップボードに残ります': 'Inputs and results are not saved. Only the selected display language is stored. Copied content remains on the clipboard.',
