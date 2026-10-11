@@ -110,24 +110,30 @@ function parseCodeTokens(text) {
  * - Gracefully handles browsers without clipboard API
  */
 function copyToClipboard(text, button) {
-  if (!navigator.clipboard) return;
-
-  navigator.clipboard.writeText(text)
-    .then(() => {
-      const originalText = button.textContent;
-      button.textContent = '✓ コピー完了';
-      button.disabled = true;
-      setTimeout(() => {
-        button.textContent = originalText;
-        button.disabled = false;
-      }, 2000);
-    })
-    .catch(() => {
-      button.textContent = '✗ 失敗';
-      setTimeout(() => {
-        button.textContent = originalText;
-      }, 2000);
-    });
+  if (!text || button.disabled) return;
+  const selector = '#' + button.id;
+  const task = { key: 'copying' };
+  copyTasks.set(selector, task);
+  button.disabled = true;
+  button.textContent = t(task.key);
+  const finish = key => {
+    if (copyTasks.get(selector) !== task) return;
+    clearTimeout(task.timeout);
+    task.key = key;
+    button.textContent = t(key);
+    setTimeout(() => {
+      if (copyTasks.get(selector) !== task) return;
+      copyTasks.delete(selector);
+      button.textContent = t('copy');
+      if (selector === '#copyCipherBtn') updateCopyCipherButton();
+      else updateCopyPlainButton();
+    }, 2000);
+  };
+  if (!navigator.clipboard?.writeText) { finish('copyUnsupported'); return; }
+  task.timeout = setTimeout(() => finish('copyFailed'), 8000);
+  try {
+    Promise.resolve(navigator.clipboard.writeText(text)).then(() => finish('copied'), () => finish('copyFailed'));
+  } catch (_) { finish('copyFailed'); }
 }
 
 // Security: Escape HTML special characters to prevent XSS
@@ -467,82 +473,83 @@ function decrypt() {
  * - Highlights current coordinate in the list
  */
 function renderViewer(pageNum, lineNum) {
-  if (state.structure.length === 0) {
-    $('#viewer').textContent = 'インデックス未構築です。まずは「インデックス構築」を実行してください。';
-    $('#viewerSelection').classList.add('hidden');
-    return;
-  }
-  const p = Math.max(1, Math.min(pageNum, state.totals.pages));
-  const page = state.structure[p - 1];
-  if (!page) {
-    $('#viewer').textContent = '範囲外のページです。';
-    $('#viewerSelection').classList.add('hidden');
-    return;
-  }
-
-  // Clear previous selection when changing pages
+  const viewer = $('#viewer');
+  viewer.replaceChildren();
   $('#viewerSelection').classList.add('hidden');
-
-  // Update page input to reflect actual page shown
+  state.selection = null;
+  if (!state.ready || !book) {
+    viewer.textContent = t('viewerEmpty');
+    updatePaginationButtons();
+    return;
+  }
+  let p, first;
+  try {
+    p = BookCodeCore.positiveInteger(pageNum, state.totals.pages);
+    first = BookCodeCore.positiveInteger(lineNum, state.structure[p - 1].length);
+  } catch (_) {
+    viewer.textContent = t('viewerInvalid');
+    updatePaginationButtons();
+    return;
+  }
   $('#viewPage').value = p;
-
-  const linesHtml = page.map((words, idx) => {
-    const ln = idx + 1;
-    const spans = words.map((w, wi) => `<span class="word" data-p="${p}" data-l="${ln}" data-w="${wi+1}">${escapeHtml(w)}</span>`).join(' ');
-    return `<div class="line"><span class="line-number">[${p}:${ln}]</span> ${spans}</div>`;
-  }).join('\n');
-
-  $('#viewer').innerHTML = linesHtml;
-
-  // Click to highlight a word (simulate selection)
-  $('#viewer').querySelectorAll('.word').forEach(el => {
-    el.addEventListener('click', () => {
-      $('#viewer').querySelectorAll('.word').forEach(n => n.classList.remove('active'));
-      el.classList.add('active');
-      const p = el.getAttribute('data-p');
-      const l = el.getAttribute('data-l');
-      const w = el.getAttribute('data-w');
-      const word = el.textContent;
-      const clickedCoord = `${p}:${l}:${w}`;
-
-      // Get all occurrences of this word from the index
-      const allOccurrences = state.index.get(word) || [];
-
-      const selectionEl = $('#viewerSelection');
-      if (allOccurrences.length === 0) {
-        selectionEl.textContent = `選択: ${clickedCoord} → "${word}" (インデックスに未登録)`;
-      } else if (allOccurrences.length === 1) {
-        selectionEl.innerHTML = `選択: <strong>${clickedCoord}</strong> → <strong>"${escapeHtml(word)}"</strong> (この単語は1箇所のみ出現)`;
-      } else {
-        // Multiple occurrences - show all coordinates
-        const coordList = allOccurrences.map(loc => {
-          const coord = `${loc.p}:${loc.l}:${loc.w}`;
-          return coord === clickedCoord
-            ? `<strong class="coord-highlight">${coord}</strong>`
-            : coord;
-        }).join(', ');
-        selectionEl.innerHTML = `選択: <strong>"${escapeHtml(word)}"</strong> → ${allOccurrences.length}箇所に出現<br>` +
-                                `座標: ${coordList}`;
-      }
-      selectionEl.classList.remove('hidden');
-    });
-  });
-
-  // Update pagination button states
+  $('#viewLine').value = first;
+  const page = state.structure[p - 1];
+  const limits = BookCodeCore.LIMITS;
+  let wordCount = 0;
+  let lineCount = 0;
+  for (let i = first - 1; i < page.length && lineCount < limits.viewLines && wordCount < limits.viewWords; i++) {
+    const line = document.createElement('div');
+    line.className = i === first - 1 ? 'line target-line' : 'line';
+    const label = document.createElement('span');
+    label.className = 'line-number';
+    label.textContent = '[' + p + ':' + (i + 1) + '] ';
+    line.append(label);
+    const words = page[i];
+    for (let w = 0; w < words.length && wordCount < limits.viewWords; w++) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'word';
+      button.textContent = words[w].length > 120 ? words[w].slice(0, 120) + '…' : words[w];
+      button.dataset.coord = p + ':' + (i + 1) + ':' + (w + 1);
+      button.addEventListener('click', () => {
+        viewer.querySelectorAll('.word').forEach(el => el.classList.remove('active'));
+        button.classList.add('active');
+        state.selection = { word: words[w], coord: button.dataset.coord };
+        renderSelection();
+      });
+      line.append(button, document.createTextNode(' '));
+      wordCount++;
+    }
+    viewer.append(line);
+    lineCount++;
+  }
+  const remaining = page.slice(first - 1).reduce((n, line) => n + line.length, 0);
+  if (wordCount < remaining || lineCount < page.length - first + 1) {
+    const hint = document.createElement('p');
+    hint.className = 'notes warning';
+    hint.textContent = t('viewerLimit');
+    viewer.append(hint);
+  }
   updatePaginationButtons();
 }
 
-function updatePaginationButtons() {
-  const currentPage = parseInt($('#viewPage').value) || 1;
-  const prevBtn = $('#prevPageBtn');
-  const nextBtn = $('#nextPageBtn');
+function renderSelection() {
+  if (!state.selection || !book) return;
+  const { word, coord } = state.selection;
+  const all = state.index.get(word) || [];
+  const selection = $('#viewerSelection');
+  const preview = word.length > 120 ? word.slice(0, 120) + '…' : word;
+  selection.textContent = t('selection', { word: preview, coord, n: all.length }) + '\n' +
+    all.slice(0, BookCodeCore.LIMITS.occurrences).map(loc => loc.p + ':' + loc.l + ':' + loc.w).join(', ');
+  if (all.length > BookCodeCore.LIMITS.occurrences) selection.append('\n' + t('occurrenceLimit'));
+  selection.classList.remove('hidden');
+}
 
-  if (prevBtn) {
-    prevBtn.disabled = currentPage <= 1;
-  }
-  if (nextBtn) {
-    nextBtn.disabled = currentPage >= state.totals.pages;
-  }
+function updatePaginationButtons() {
+  const currentPage = Number($('#viewPage').value);
+  $('#prevPageBtn').disabled = !state.ready || !Number.isSafeInteger(currentPage) || currentPage <= 1;
+  $('#nextPageBtn').disabled = !state.ready || !Number.isSafeInteger(currentPage) || currentPage >= state.totals.pages;
+  $('#viewBtn').disabled = !state.ready;
 }
 
 // -------------------- Tabs --------------------
@@ -757,10 +764,10 @@ async function init() {
 
   // Copy buttons with feedback
   $('#copyCipherBtn').addEventListener('click', (e) => {
-    copyToClipboard($('#cipherOutput').value, e.target);
+    copyToClipboard($('#cipherOutput').value, e.currentTarget);
   });
   $('#copyPlainBtn').addEventListener('click', (e) => {
-    copyToClipboard($('#plainOutput').value, e.target);
+    copyToClipboard($('#plainOutput').value, e.currentTarget);
   });
 
   // Sync cipher button

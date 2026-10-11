@@ -14,7 +14,7 @@
 <body>
   <header class="app-header">
     <h1>Book Code Builder</h1>
-    <p class="subtitle">「page:line:word」形式の<string>書籍暗号（Book Code）</string>を体験する教育用ツール</p>
+    <p class="subtitle">「page:line:word」形式の書籍暗号（Book Code）を体験する教育用ツール</p>
   </header>
 
   <main class="container">
@@ -22,31 +22,25 @@
       <h2>1) 鍵生成（コードブック設定）</h2>
       <div class="controls">
         <label for="linesPerPage">ページあたりの行数:
-          <span class="tooltip">?
-            <span class="tooltiptext">テキストを何行ごとにページ分割するか指定します。</span>
-          </span>
-          <input type="number" id="linesPerPage" min="1" value="40" />
+          <input type="number" id="linesPerPage" min="1" max="200" step="1" value="40" />
+          <span class="help-text">改行で数えた行を1〜200行ずつに分けます。印刷された本のページとは異なります。</span>
         </label>
-        <label>
+        <div class="check-control">
           <input type="checkbox" id="normalizeCase" checked />
           <label for="normalizeCase">大文字・小文字を無視</label>
-        </label>
-        <label>
+        </div>
+        <div class="check-control">
           <input type="checkbox" id="normalizeNFKC" checked />
           <label for="normalizeNFKC">Unicode正規化（NFKC）
-            <span class="tooltip">?
-              <span class="tooltiptext">全角半角の差異を統一します。実務では版の違いに相当。</span>
-            </span>
+            <span class="help-text">全角英数字などの互換表現を統一します。版や改行の違いは解決しません。</span>
           </label>
-        </label>
-        <label>
+        </div>
+        <div class="check-control">
           <input type="checkbox" id="useRoundRobin" checked />
           <label for="useRoundRobin">ラウンドロビン割当
-            <span class="tooltip">?
-              <span class="tooltiptext">同じ単語が複数回出現する場合、毎回異なる座標を割り当てます。頻度分析攻撃への耐性が向上します。</span>
-            </span>
+            <span class="help-text">同じ単語の出現位置を順に巡回します。乱数ではなく、安全性を保証しません。</span>
           </label>
-        </label>
+        </div>
       </div>
       <div class="controls-actions">
         <button id="buildBtn">インデックス構築</button>
