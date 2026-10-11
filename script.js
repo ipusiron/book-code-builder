@@ -47,11 +47,8 @@ const $$ = (sel) => Array.from(document.querySelectorAll(sel));
  * - NFKC: Converts full-width characters to half-width (e.g., "ＡＢＣ" → "ABC")
  * - lower: Case-insensitive matching (e.g., "Hello" → "hello")
  */
-function normalizeText(str, { lower = true, nfkc = true } = {}) {
-  let s = str;
-  if (nfkc && s.normalize) s = s.normalize('NFKC');
-  if (lower) s = s.toLowerCase();
-  return s;
+function normalizeText(str, options) {
+  return BookCodeCore.normalizeText(str, options);
 }
 
 /**
@@ -80,7 +77,7 @@ const WORD_RE = /[\p{L}\p{N}]+(?:[-'''][\p{L}\p{N}]+)*/gu;
  * @returns {string[]} Array of words found in the line
  */
 function tokenize(line) {
-  return (line.match(WORD_RE) || []);
+  return BookCodeCore.tokenize(line);
 }
 
 /**
@@ -97,16 +94,8 @@ function tokenize(line) {
  *
  * Invalid tokens return null in the array for error tracking
  */
-function parseCodeTokens(s) {
-  // Accept separators: space, comma, semicolon, newline
-  const raw = s.split(/[\s,;]+/).filter(Boolean);
-  const triples = [];
-  for (const t of raw) {
-    const m = t.match(/^(\d+):(\d+):(\d+)$/);
-    if (!m) { triples.push(null); continue; }
-    triples.push([+m[1], +m[2], +m[3]]);
-  }
-  return triples;
+function parseCodeTokens(text) {
+  return BookCodeCore.parseCodeTokens(text);
 }
 
 /**
@@ -175,6 +164,8 @@ function escapeHtml(str){
  * - normalizedLines: Flat array of all normalized text lines for viewer
  */
 const state = {
+  ready: false,
+  building: false,
   lpp: 40,
   normCase: true,
   normNFKC: true,
@@ -213,92 +204,111 @@ const state = {
  * Time complexity: O(n) where n is total number of words
  * Space complexity: O(n) for index storage
  */
+let book = null;
+let revision = 0;
+let loadRevision = 0;
+let loadController = null;
+let authStopped = false;
+let snapshot = null;
+let statusMessages = new Map();
+const copyTasks = new Map();
+
+function t(key, values = {}) {
+  const dictionary = BookCodeMessages[document.documentElement.lang] || BookCodeMessages.ja;
+  return (dictionary[key] || BookCodeMessages.ja[key] || key).replace(/\{(\w+)\}/g, (_, name) => String(values[name] ?? ''));
+}
+
+function note(selector, key, values = {}, type = 'info') {
+  statusMessages.set(selector, { key, values, type });
+  setNote($(selector), t(key, values), type);
+}
+
+function resetResult(kind) {
+  const encrypting = kind === 'encrypt';
+  $(encrypting ? '#cipherOutput' : '#plainOutput').value = '';
+  const selector = encrypting ? '#copyCipherBtn' : '#copyPlainBtn';
+  copyTasks.delete(selector);
+  $(selector).textContent = t('copy');
+  $(selector).disabled = true;
+  if (encrypting) $('#syncCipherBtn').disabled = true;
+  note(encrypting ? '#encryptNotes' : '#decryptNotes', 'changed');
+}
+
+function invalidateBook(cancelLoad = true) {
+  revision++;
+  if (cancelLoad) {
+    loadRevision++;
+    if (loadController) loadController.abort();
+    loadController = null;
+    $('#loadStatus').textContent = '';
+    statusMessages.delete('#loadStatus');
+  }
+  book = null;
+  snapshot = null;
+  state.ready = false;
+  state.building = false;
+  state.structure = [];
+  state.index = new Map();
+  state.rr.clear();
+  state.totals = { pages: 0, lines: 0, words: 0, unique: 0 };
+  $('#stats').textContent = '';
+  resetResult('encrypt');
+  resetResult('decrypt');
+  $('#buildBtn').disabled = false;
+  $('#buildBtn').textContent = t('build');
+  note('#bookStatus', 'dirty', {}, 'warning');
+  renderViewer(1, 1);
+  updateEncryptButton();
+  updateDecryptButton();
+  updatePaginationButtons();
+}
+
+function readSnapshot() {
+  return [$('#referenceText').value, $('#linesPerPage').value, $('#normalizeCase').checked, $('#normalizeNFKC').checked];
+}
+
+function isReady() {
+  if (!book || !state.ready || state.building) return false;
+  if (JSON.stringify(readSnapshot()) !== JSON.stringify(snapshot)) {
+    invalidateBook();
+    return false;
+  }
+  return true;
+}
+
 function buildIndex() {
-  const btn = $('#buildBtn');
-  const originalText = btn.textContent;
-  btn.textContent = '構築中...';
-  btn.disabled = true;
-
-  // Use setTimeout to allow UI to update
+  invalidateBook();
+  const ticket = revision;
+  const input = readSnapshot();
+  state.building = true;
+  $('#buildBtn').textContent = t('building');
+  $('#buildBtn').disabled = true;
+  note('#bookStatus', 'building');
   setTimeout(() => {
-    state.lpp = Math.max(1, +$('#linesPerPage').value || 40);
-    state.normCase = $('#normalizeCase').checked;
-    state.normNFKC = $('#normalizeNFKC').checked;
-    state.useRoundRobin = $('#useRoundRobin').checked;
-
-    const raw = $('#referenceText').value;
-    const normalizedAll = normalizeText(raw, { lower: state.normCase, nfkc: state.normNFKC });
-
-    const lines = normalizedAll.split(/\r?\n/);
-    state.normalizedLines = lines.slice();
-
-    // Group lines into pages of LPP
-    const pages = [];
-    for (let i = 0; i < lines.length; i += state.lpp) {
-      pages.push(lines.slice(i, i + state.lpp));
+    if (ticket !== revision) return;
+    try {
+      const next = BookCodeCore.buildIndex(input[0], { lpp: input[1], lower: input[2], nfkc: input[3] });
+      book = next;
+      Object.assign(state, next);
+      state.rr = new Map();
+      state.useRoundRobin = $('#useRoundRobin').checked;
+      snapshot = input;
+      state.ready = true;
+      $('#stats').textContent = t('stats', state.totals);
+      $('#viewPage').value = 1;
+      $('#viewLine').value = 1;
+      note('#bookStatus', 'ready', {}, 'success');
+      renderViewer(1, 1);
+    } catch (error) {
+      const key = 'error_' + error.message;
+      note('#bookStatus', BookCodeMessages.ja[key] ? key : 'error_unknown', {}, 'error');
+    } finally {
+      state.building = false;
+      $('#buildBtn').textContent = t('build');
+      $('#buildBtn').disabled = false;
+      updateEncryptButton();
+      updateDecryptButton();
     }
-
-    // Build structure and index
-    state.structure = [];
-    state.index.clear();
-    state.rr.clear();
-
-    let totalLines = 0;
-    let totalWords = 0;
-
-    pages.forEach((pageLines, pIdx) => {
-      const linesArr = [];
-      pageLines.forEach((ln, lIdx) => {
-        const words = tokenize(ln);
-        totalLines += 1;
-        totalWords += words.length;
-
-        // Record positions
-        words.forEach((w, wIdx) => {
-          const key = w; // already normalized
-          const loc = { p: pIdx + 1, l: lIdx + 1, w: wIdx + 1 };
-          if (!state.index.has(key)) state.index.set(key, []);
-          state.index.get(key).push(loc);
-        });
-
-        linesArr.push(words);
-      });
-      state.structure.push(linesArr);
-    });
-
-    const unique = state.index.size;
-    state.totals = {
-      pages: pages.length,
-      lines: totalLines,
-      words: totalWords,
-      unique
-    };
-
-    // Update stats with improved design
-    const stats = $('#stats');
-    stats.innerHTML = `
-      <div class="stats-grid">
-        <div class="stat-item">📄 ページ数: <strong>${state.totals.pages}</strong></div>
-        <div class="stat-item">📝 行数: <strong>${state.totals.lines}</strong></div>
-        <div class="stat-item">💬 単語数: <strong>${state.totals.words}</strong></div>
-        <div class="stat-item">✨ ユニーク: <strong>${state.totals.unique}</strong></div>
-      </div>
-    `;
-
-    // Reset viewer default to 1:1
-    $('#viewPage').value = 1;
-    $('#viewLine').value = 1;
-
-    // Notes with proper styling
-    setNote($('#encryptNotes'), '未収録語は {???} で出力します。語の多重出現はラウンドロビンで割当。', 'info');
-    setNote($('#decryptNotes'), '不正なトークンや範囲外は [?] として出力します。', 'info');
-
-    // Refresh viewer first page
-    renderViewer(1, 1);
-
-    // Restore button
-    btn.textContent = originalText;
-    btn.disabled = false;
   }, 50);
 }
 
@@ -340,57 +350,19 @@ function setNote(element, message, type = '') {
  * - Round-robin OFF makes cipher vulnerable to frequency attacks
  */
 function encrypt() {
-  const srcRaw = $('#plainInput').value;
-  if (!srcRaw.trim()) {
-    $('#cipherOutput').value = '';
+  resetResult('encrypt');
+  if (!isReady()) { note('#encryptNotes', 'needBuild', {}, 'warning'); return; }
+  try {
+    const result = BookCodeCore.encode(book, $('#plainInput').value, state.useRoundRobin, state.rr);
+    state.rr = result.pointers;
+    $('#cipherOutput').value = result.text;
     updateCopyCipherButton();
-    $('#syncCipherBtn').disabled = true;
-    setNote($('#encryptNotes'), '入力が空です。', 'warning');
-    return;
-  }
-  if (state.structure.length === 0) buildIndex();
-
-  const norm = normalizeText(srcRaw, { lower: state.normCase, nfkc: state.normNFKC });
-  const words = tokenize(norm);
-
-  const codes = [];
-  const missing = [];
-
-  for (const w of words) {
-    const locs = state.index.get(w);
-    if (!locs || locs.length === 0) {
-      codes.push('{???}');
-      missing.push(w);
-    } else {
-      let loc;
-      if (state.useRoundRobin) {
-        // Round-robin pick: cycle through all occurrences
-        const ptr = state.rr.get(w) || 0;
-        loc = locs[ptr % locs.length];
-        state.rr.set(w, ptr + 1);
-      } else {
-        // Always use the first occurrence
-        loc = locs[0];
-      }
-      codes.push(`${loc.p}:${loc.l}:${loc.w}`);
-    }
-  }
-
-  $('#cipherOutput').value = codes.join(' ');
-
-  // Update button states
-  updateCopyCipherButton();
-  const syncBtn = $('#syncCipherBtn');
-  if (syncBtn && codes.length > 0) {
-    syncBtn.disabled = false;
-  }
-
-  if (missing.length) {
-    const noteEl = $('#encryptNotes');
-    noteEl.innerHTML = `未収録語（${missing.length}）: <code>${escapeHtml(missing.slice(0, 10).join(', '))}${missing.length>10?' …':''}</code>`;
-    noteEl.className = 'notes warning';
-  } else {
-    setNote($('#encryptNotes'), 'すべて符号化できました。', 'success');
+    $('#syncCipherBtn').disabled = false;
+    if (result.missing.length) {
+      note('#encryptNotes', 'missing', { n: result.missing.length, words: result.missing.slice(0, 10).join(', ') }, 'warning');
+    } else note('#encryptNotes', 'encoded', { n: result.count }, 'success');
+  } catch (error) {
+    note('#encryptNotes', BookCodeMessages.ja['error_' + error.message] ? 'error_' + error.message : 'error_unknown', {}, 'error');
   }
 }
 
@@ -405,6 +377,7 @@ function syncCipher() {
   const cipherText = $('#cipherOutput').value;
   if (cipherText.trim()) {
     $('#cipherInput').value = cipherText;
+    resetResult('decrypt');
     $('#cipherInput').focus();
     // Trigger input event to enable decrypt button
     updateDecryptButton();
@@ -424,12 +397,12 @@ function syncCipher() {
  */
 function updateEncryptButton() {
   const plainInput = $('#plainInput').value.trim();
-  $('#encryptBtn').disabled = !plainInput;
+  $('#encryptBtn').disabled = !plainInput || !state.ready || state.building;
 }
 
 function updateDecryptButton() {
   const cipherInput = $('#cipherInput').value.trim();
-  $('#decryptBtn').disabled = !cipherInput;
+  $('#decryptBtn').disabled = !cipherInput || !state.ready || state.building;
 }
 
 function updateCopyCipherButton() {
@@ -463,40 +436,16 @@ function updateCopyPlainButton() {
  * regardless of normalization settings (uses pre-normalized structure)
  */
 function decrypt() {
-  const cipherRaw = $('#cipherInput').value;
-  if (!cipherRaw.trim()) {
-    $('#plainOutput').value = '';
+  resetResult('decrypt');
+  if (!isReady()) { note('#decryptNotes', 'needBuild', {}, 'warning'); return; }
+  try {
+    const result = BookCodeCore.decode(book, $('#cipherInput').value);
+    $('#plainOutput').value = result.text;
     updateCopyPlainButton();
-    setNote($('#decryptNotes'), '入力が空です。', 'warning');
-    return;
-  }
-  if (state.structure.length === 0) buildIndex();
-
-  const triples = parseCodeTokens(cipherRaw);
-  const out = [];
-  let bad = 0;
-
-  for (const t of triples) {
-    if (!t) { out.push('[?]'); bad++; continue; }
-    const [p, l, w] = t;
-    const page = state.structure[p - 1];
-    if (!page) { out.push('[?]'); bad++; continue; }
-    const line = page[l - 1];
-    if (!line) { out.push('[?]'); bad++; continue; }
-    const word = line[w - 1];
-    if (!word) { out.push('[?]'); bad++; continue; }
-    out.push(word);
-  }
-
-  $('#plainOutput').value = out.join(' ');
-
-  // Update copy button state
-  updateCopyPlainButton();
-
-  if (bad) {
-    setNote($('#decryptNotes'), `警告：${bad} トークンが不正/範囲外です。`, 'error');
-  } else {
-    setNote($('#decryptNotes'), '復号に成功しました。', 'success');
+    if (result.bad) note('#decryptNotes', 'badCodes', { n: result.bad }, 'error');
+    else note('#decryptNotes', 'decoded', {}, 'success');
+  } catch (error) {
+    note('#decryptNotes', BookCodeMessages.ja['error_' + error.message] ? 'error_' + error.message : 'error_unknown', {}, 'error');
   }
 }
 
@@ -639,6 +588,7 @@ function setPlaintextPreset(presetId) {
   const text = PLAINTEXT_PRESETS[presetId];
   if (text) {
     $('#plainInput').value = text;
+    resetResult('encrypt');
     $('#plainInput').focus();
     updateEncryptButton();
   }
@@ -681,127 +631,94 @@ MORAL: The tyrant will always find a pretext for his tyranny.`;
  *
  * Returns empty array if manifest doesn't exist or fails to load
  */
-async function loadCodebookManifest() {
+async function fetchText(url, controller, limit) {
+  const timeout = setTimeout(() => controller.abort(), 10000);
   try {
-    const response = await fetch('data/manifest.json');
-    if (!response.ok) {
-      console.warn('manifest.json not found or error loading');
-      return [];
+    const response = await fetch(url, { signal: controller.signal, credentials: 'omit', redirect: 'error' });
+    if (response.status === 401) { authStopped = true; throw new Error('authStop'); }
+    if (!response.ok) throw new Error('loadFailed');
+    if (Number(response.headers.get('Content-Length')) > limit * 4) throw new Error('textLimit');
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let text = '';
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        text += decoder.decode(value, { stream: true });
+        if (text.length > limit) throw new Error('textLimit');
+      }
+      text += decoder.decode();
+      if (text.length > limit) throw new Error('textLimit');
+      return text;
+    } finally { await reader.cancel(); }
+  } finally { clearTimeout(timeout); }
+}
+
+async function loadCodebookManifest() {
+  if (location.protocol === 'file:') { note('#loadStatus', 'fileMode'); return []; }
+  if (authStopped) return [];
+  try {
+    const data = JSON.parse(await fetchText('data/manifest.json', new AbortController(), 100000));
+    if (!Array.isArray(data.codebooks) || data.codebooks.length > 50) throw new Error('catalogFailed');
+    const ids = new Set();
+    for (const entry of data.codebooks) {
+      if (!entry || typeof entry.id !== 'string' || !/^[a-z0-9-]+$/.test(entry.id) ||
+          ids.has(entry.id) || typeof entry.title !== 'string' || entry.title.length > 200 ||
+          !BookCodeCore.validateFilename(entry.filename)) throw new Error('catalogFailed');
+      ids.add(entry.id);
     }
-    const data = await response.json();
-    return data.codebooks || [];
-  } catch (err) {
-    console.error('Failed to load manifest:', err);
+    return data.codebooks;
+  } catch (error) {
+    note('#loadStatus', authStopped ? 'authStop' : 'catalogFailed', {}, 'warning');
     return [];
   }
 }
 
-// Security: Validate filename to prevent path traversal attacks
 function validateFilename(filename) {
-  // Only allow alphanumeric, spaces, hyphens, underscores, and .txt extension
-  // Reject any path separators (/, \), parent directory references (..), or other suspicious patterns
-  const safePattern = /^[a-zA-Z0-9\s\-_']+\.txt$/;
-  if (!safePattern.test(filename)) {
-    console.error('Invalid filename detected:', filename);
-    return false;
-  }
-  // Additional check: no path separators
-  if (filename.includes('/') || filename.includes('\\') || filename.includes('..')) {
-    console.error('Path traversal attempt detected:', filename);
-    return false;
-  }
-  return true;
+  return BookCodeCore.validateFilename(filename);
 }
 
-/**
- * Load codebook text file from data/ folder
- * @param {string} filename - Filename (e.g., "file.txt")
- * @returns {Promise<string|null>} File content or null on error
- *
- * Security:
- * - Validates filename before fetching (prevents path traversal)
- * - Only allows alphanumeric + spaces + hyphens + underscores
- * - Rejects "..", "/", "\" characters
- * - Shows user-friendly error messages
- */
 async function loadCodebook(filename) {
-  // Security: Validate filename before fetching
-  if (!validateFilename(filename)) {
-    alert(`セキュリティ上の理由でファイル名が拒否されました: ${filename}`);
-    return null;
-  }
-
+  if (authStopped) { note('#loadStatus', 'authStop', {}, 'error'); return; }
+  if (!validateFilename(filename)) { note('#loadStatus', 'loadFailed', {}, 'error'); return; }
+  invalidateBook();
+  const ticket = loadRevision;
+  const controller = new AbortController();
+  loadController = controller;
+  note('#loadStatus', 'loading');
   try {
-    const response = await fetch(`data/${filename}`);
-    if (!response.ok) {
-      throw new Error(`Failed to load ${filename}`);
-    }
-    const text = await response.text();
-    return text;
-  } catch (err) {
-    console.error('Failed to load codebook:', err);
-    alert(`コードブックの読み込みに失敗しました: ${filename}`);
-    return null;
+    const text = await fetchText('data/' + encodeURIComponent(filename), controller, BookCodeCore.LIMITS.reference);
+    if (ticket !== loadRevision) return;
+    // Validate before replacing the user's text.
+    BookCodeCore.buildIndex(text, { lpp: $('#linesPerPage').value,
+      lower: $('#normalizeCase').checked, nfkc: $('#normalizeNFKC').checked });
+    $('#referenceText').value = text.replace(/\r\n?/g, '\n');
+    loadController = null;
+    buildIndex();
+    note('#loadStatus', 'loaded', {}, 'success');
+  } catch (error) {
+    if (ticket !== loadRevision) return;
+    note('#loadStatus', authStopped ? 'authStop' : 'loadFailed', {}, 'error');
+  } finally {
+    if (ticket === loadRevision) loadController = null;
   }
 }
 
-/**
- * Setup codebook preset buttons from manifest
- * @returns {Promise<Object|null>} First codebook definition or null
- *
- * Process:
- * 1. Load manifest.json
- * 2. Create button for each codebook
- * 3. Button click → load file → auto-build index
- * 4. Show loading state during file fetch
- * 5. Return first codebook for auto-loading on init
- *
- * UI:
- * - Buttons show title from manifest
- * - Tooltip shows description (if provided)
- * - Loading indicator during fetch
- */
 async function setupCodebookPresets() {
   const codebooks = await loadCodebookManifest();
-
-  if (codebooks.length === 0) {
-    // No presets available, hide the preset area
-    $('#codebookPresets').classList.add('hidden');
-    return null;
-  }
-
   const container = $('#codebookPresets');
-  container.classList.remove('hidden');
-
-  // Create buttons for each codebook
-  codebooks.forEach(book => {
+  container.classList.toggle('hidden', codebooks.length === 0);
+  codebooks.forEach(entry => {
     const btn = document.createElement('button');
+    btn.type = 'button';
     btn.className = 'preset-btn';
-    btn.textContent = book.title;
-    if (book.description) {
-      btn.title = book.description;
-    }
-    btn.addEventListener('click', async () => {
-      const originalText = btn.textContent;
-      btn.textContent = '読み込み中...';
-      btn.disabled = true;
-
-      const text = await loadCodebook(book.filename);
-      if (text) {
-        $('#referenceText').value = text;
-        $('#referenceText').focus();
-        // Auto-build index after loading
-        buildIndex();
-      }
-
-      btn.textContent = originalText;
-      btn.disabled = false;
-    });
+    btn.dataset.book = entry.id;
+    btn.textContent = entry.title;
+    btn.addEventListener('click', () => loadCodebook(entry.filename));
     container.appendChild(btn);
   });
-
-  // Return the first codebook for auto-loading
-  return codebooks.length > 0 ? codebooks[0] : null;
+  return codebooks[0] || null;
 }
 
 // -------------------- Init --------------------
@@ -822,24 +739,7 @@ async function setupCodebookPresets() {
  * Note: All async operations use await to ensure proper sequencing
  */
 async function init() {
-  // Setup codebook presets first
-  const firstPreset = await setupCodebookPresets();
-
-  // Load the first preset if available, otherwise use SAMPLE
-  if (firstPreset) {
-    const text = await loadCodebook(firstPreset.filename);
-    if (text) {
-      $('#referenceText').value = text;
-    } else {
-      // Fallback to SAMPLE if loading fails
-      $('#referenceText').value = SAMPLE;
-    }
-  } else {
-    // No presets available, use SAMPLE
-    $('#referenceText').value = SAMPLE;
-  }
-
-  // Build once
+  $('#referenceText').value = SAMPLE;
   buildIndex();
 
   // Bind controls
@@ -848,7 +748,7 @@ async function init() {
   $('#decryptBtn').addEventListener('click', decrypt);
 
   // Preset buttons
-  $$('.preset-btn').forEach(btn => {
+  $$('#encryptTab .preset-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const presetId = btn.getAttribute('data-preset');
       setPlaintextPreset(presetId);
@@ -867,8 +767,16 @@ async function init() {
   $('#syncCipherBtn').addEventListener('click', syncCipher);
 
   // Input monitoring for button states
-  $('#plainInput').addEventListener('input', updateEncryptButton);
-  $('#cipherInput').addEventListener('input', updateDecryptButton);
+  $('#plainInput').addEventListener('input', () => { resetResult('encrypt'); updateEncryptButton(); });
+  $('#cipherInput').addEventListener('input', () => { resetResult('decrypt'); updateDecryptButton(); });
+  ['referenceText', 'linesPerPage', 'normalizeCase', 'normalizeNFKC'].forEach(id => {
+    $('#' + id).addEventListener('input', () => invalidateBook());
+  });
+  $('#useRoundRobin').addEventListener('change', () => {
+    state.useRoundRobin = $('#useRoundRobin').checked;
+    state.rr.clear();
+    resetResult('encrypt');
+  });
 
   // Viewer controls
   $('#viewBtn').addEventListener('click', () => {
@@ -922,8 +830,10 @@ async function init() {
   // Tabs
   setupTabs();
 
-  // Render initial viewer
-  renderViewer(1, 1);
+  // Do not replace text if the user has already edited it during manifest loading.
+  const ticket = revision;
+  const firstPreset = await setupCodebookPresets();
+  if (firstPreset && ticket === revision) await loadCodebook(firstPreset.filename);
 }
 
 // Run after DOM ready
