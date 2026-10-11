@@ -6,47 +6,43 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Web-based simulator to encode and decode messages using historical book codes (page:line:word)." />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none';" />
-  <meta http-equiv="X-Content-Type-Options" content="nosniff" />
   <meta name="referrer" content="no-referrer" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>📖</text></svg>" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header class="app-header">
+    <div class="header-actions"><button id="languageBtn" type="button" lang="en">English</button></div>
     <h1>Book Code Builder</h1>
-    <p class="subtitle">「page:line:word」形式の<string>書籍暗号（Book Code）</string>を体験する教育用ツール</p>
+    <p class="subtitle">「page:line:word」形式の書籍暗号（Book Code）を体験する教育用ツール</p>
+    <p class="subtitle">学習用です。秘密情報の保護には使えません。入力は送信せず、再読込で消えます。</p>
   </header>
+  <noscript>JavaScriptを有効にしてください。 / Please enable JavaScript.</noscript>
 
   <main class="container">
     <section class="panel">
-      <h2>1) 鍵生成（コードブック設定）</h2>
+      <h2>1) コードブック設定</h2>
       <div class="controls">
         <label for="linesPerPage">ページあたりの行数:
-          <span class="tooltip">?
-            <span class="tooltiptext">テキストを何行ごとにページ分割するか指定します。</span>
-          </span>
-          <input type="number" id="linesPerPage" min="1" value="40" />
+          <input type="number" id="linesPerPage" min="1" max="200" step="1" value="40" />
+          <span class="help-text">改行で数えた行を1〜200行ずつに分けます。印刷された本のページとは異なります。</span>
         </label>
-        <label>
+        <div class="check-control">
           <input type="checkbox" id="normalizeCase" checked />
           <label for="normalizeCase">大文字・小文字を無視</label>
-        </label>
-        <label>
+        </div>
+        <div class="check-control">
           <input type="checkbox" id="normalizeNFKC" checked />
           <label for="normalizeNFKC">Unicode正規化（NFKC）
-            <span class="tooltip">?
-              <span class="tooltiptext">全角半角の差異を統一します。実務では版の違いに相当。</span>
-            </span>
+            <span class="help-text">全角英数字などの互換表現を統一します。版や改行の違いは解決しません。</span>
           </label>
-        </label>
-        <label>
+        </div>
+        <div class="check-control">
           <input type="checkbox" id="useRoundRobin" checked />
           <label for="useRoundRobin">ラウンドロビン割当
-            <span class="tooltip">?
-              <span class="tooltiptext">同じ単語が複数回出現する場合、毎回異なる座標を割り当てます。頻度分析攻撃への耐性が向上します。</span>
-            </span>
+            <span class="help-text">同じ単語の出現位置を順に巡回します。乱数ではなく、安全性を保証しません。</span>
           </label>
-        </label>
+        </div>
       </div>
       <div class="controls-actions">
         <button id="buildBtn">インデックス構築</button>
@@ -54,8 +50,12 @@
       <div id="codebookPresets" class="preset-buttons hidden">
         <span class="preset-label">コードブックプリセット:</span>
       </div>
-      <textarea id="referenceText" rows="10" spellcheck="false"></textarea>
+      <label for="referenceText">参照文（コードブック）</label>
+      <textarea id="referenceText" rows="6" spellcheck="false" aria-describedby="inputLimits"></textarea>
+      <p id="inputLimits" class="help-text">参照文は1,000,000コード単位、100,000語、50,000行まで。文字数はUTF-16コード単位で数えます。</p>
       <div id="stats" class="stats"></div>
+      <p id="bookStatus" class="notes" role="status"></p>
+      <p id="loadStatus" class="notes" role="status"></p>
     </section>
 
     <section class="tabs">
@@ -73,21 +73,23 @@
         <button class="preset-btn" data-preset="2">秘密メッセージ</button>
         <button class="preset-btn" data-preset="3">長文サンプル</button>
       </div>
-      <textarea id="plainInput" rows="5" placeholder="例）this is a secret message"></textarea>
+      <label for="plainInput">平文（20,000コード単位まで）</label>
+      <textarea id="plainInput" rows="4" placeholder="例）this is a secret message"></textarea>
       <div class="controls">
         <button id="encryptBtn" disabled>暗号化</button>
       </div>
       <div class="output-with-copy">
-        <textarea id="cipherOutput" rows="5" readonly></textarea>
-        <button id="copyCipherBtn" class="copy-btn" disabled title="暗号文をクリップボードにコピー">
+        <textarea id="cipherOutput" rows="3" readonly aria-label="暗号文の結果"></textarea>
+        <button id="copyCipherBtn" class="copy-btn" disabled title="暗号文をクリップボードにコピー" aria-live="polite">
           <span>📋 コピー</span>
         </button>
       </div>
-      <div id="encryptNotes" class="notes"></div>
+      <div id="encryptNotes" class="notes" role="status"></div>
     </section>
 
     <section id="decryptTab" class="tabcontent">
       <h2>3) 復号</h2>
+      <label for="cipherInput">暗号文（100,000コード単位まで）</label>
       <div class="input-with-sync">
         <textarea id="cipherInput" rows="5" placeholder="例）1:1:1 1:1:2, 1:1:3"></textarea>
         <button id="syncCipherBtn" class="sync-btn" disabled title="暗号化タブの暗号文を読み込む">
@@ -98,16 +100,17 @@
         <button id="decryptBtn" disabled>復号</button>
       </div>
       <div class="output-with-copy">
-        <textarea id="plainOutput" rows="5" readonly></textarea>
-        <button id="copyPlainBtn" class="copy-btn" disabled title="平文をクリップボードにコピー">
+        <textarea id="plainOutput" rows="3" readonly aria-label="復号した単語列"></textarea>
+        <button id="copyPlainBtn" class="copy-btn" disabled title="平文をクリップボードにコピー" aria-live="polite">
           <span>📋 コピー</span>
         </button>
       </div>
-      <div id="decryptNotes" class="notes"></div>
+      <div id="decryptNotes" class="notes" role="status"></div>
     </section>
 
     <section id="viewerTab" class="tabcontent">
       <h2>4) コードブック・ビューワー</h2>
+      <p class="help-text">指定行から最大100行、2,000語を表示します。長い単語は先頭120コード単位、出現座標は先頭100件まで表示します。全文は参照文で確認できます。</p>
       <div class="viewer-controls">
         <button id="prevPageBtn" class="secondary">← 前のページ</button>
         <label for="viewPage">ページ: <input type="number" id="viewPage" min="1" value="1" /></label>
@@ -116,7 +119,7 @@
         <button id="nextPageBtn" class="secondary">次のページ →</button>
       </div>
       <div id="viewer" class="viewer"></div>
-      <div id="viewerSelection" class="viewer-selection hidden"></div>
+      <div id="viewerSelection" class="viewer-selection hidden" role="status"></div>
     </section>
 
     <section id="helpTab" class="tabcontent">
@@ -167,10 +170,11 @@
             <p>同じ単語がコードブック内に複数回出現する場合、毎回異なる座標を順番に割り当てる方式です。</p>
             <p><strong>例：</strong> 「wolf」が3箇所 (1:5:2, 2:3:1, 3:1:4) に出現する場合</p>
             <ul>
-              <li><strong>ON（推奨）:</strong> 1回目→<code>1:5:2</code>、2回目→<code>2:3:1</code>、3回目→<code>3:1:4</code>、4回目→<code>1:5:2</code>（最初に戻る）</li>
+              <li><strong>ON:</strong> 1回目→<code>1:5:2</code>、2回目→<code>2:3:1</code>、3回目→<code>3:1:4</code>、4回目→<code>1:5:2</code>（最初に戻る）</li>
               <li><strong>OFF:</strong> すべて <code>1:5:2</code>（常に最初の座標）</li>
             </ul>
-            <p>ラウンドロビンONにすると、同じ単語でも暗号文では異なる座標になり、頻度分析攻撃への耐性が向上します。</p>
+            <p>ラウンドロビンは出現位置を決まった順に巡回します。乱数ではなく、1カ所だけの単語は毎回同じ座標です。頻度を複数の座標に分散しますが、安全性を保証しません。</p>
+            <p>インデックスの再構築とラウンドロビンの切り替えで巡回位置をリセットします。言語の切り替えでは変わりません。</p>
           </div>
         </div>
       </details>
@@ -178,7 +182,7 @@
       <details class="accordion">
         <summary>🕰️ 歴史的背景</summary>
         <div class="accordion-content">
-          <p>書籍暗号は19〜20世紀のスパイ活動・外交・戦時通信で広く使用されました。</p>
+          <p>書籍を参照する暗号の歴史例として、アメリカ独立戦争期のArnoldとAndréの通信があります。本ツールは当時の書籍や数え方を再現するものではありません。</p>
 
           <h3>なぜ重要だったのか</h3>
           <ul>
@@ -195,7 +199,7 @@
             <li><strong>運用管理：</strong> 同一版の配布・更新手順が重要</li>
           </ul>
 
-          <p class="note-box info">💡 実際の「ブックコード破り（book code breaking）」は情報戦の一分野として研究されていました。</p>
+          <p class="note-box info">💡 同じ本の名前だけでは座標は一致しません。本文、改行、ページ行数、単語の数え方を一致させる必要があります。</p>
         </div>
       </details>
 
@@ -208,7 +212,7 @@
               <strong>コードブックの設定：</strong>
               <ul>
                 <li>コードブックプリセットボタンから選択（推奨）</li>
-                <li>または、任意のテキストを「Reference Text」欄に貼り付け</li>
+                <li>または、任意のテキストを「参照文」欄に貼り付け</li>
               </ul>
             </li>
             <li><strong>設定調整：</strong> 「ページあたりの行数」や正規化オプションを調整（必要に応じて）</li>
@@ -226,14 +230,14 @@
               <ul>
                 <li>「復号」タブで <code>p:l:w</code> 形式の暗号文を入力</li>
                 <li>「↓ 同期」ボタンで暗号化タブの暗号文を自動読込可能</li>
-                <li>「復号」ボタンをクリック → 平文が復元</li>
+                <li>「復号」ボタンをクリック → 正規化後の単語列を表示</li>
               </ul>
             </li>
             <li>
               <strong>ビューワー：</strong>
               <ul>
                 <li>「ビューワー」タブでコードブックの内容を確認</li>
-                <li>単語をクリックすると、その単語の全出現座標を表示</li>
+                <li>単語をクリックすると、出現数と先頭100件の座標を表示</li>
                 <li>ページ送り・戻しボタンでナビゲーション可能</li>
               </ul>
             </li>
@@ -260,13 +264,13 @@
         <div class="accordion-content">
           <h3>ページ分割と行の扱い</h3>
           <ul>
-            <li><strong>改行による行分割：</strong> <code>\n</code> または <code>\r\n</code> で行に分割</li>
+            <li><strong>改行による行分割：</strong> <code>LF / CRLF / CR</code> で行に分割</li>
             <li><strong>ページ分割：</strong> 「ページあたりの行数」（デフォルト40行）で論理的にページ分割</li>
-            <li><strong>行の構造：</strong> 1行あたりの単語数に制限なし（可変長）</li>
+            <li><strong>行の構造：</strong> 行の長さは可変です。参照文全体の上限とビューワーの表示上限が適用されます</li>
           </ul>
 
           <h3>単語の抽出</h3>
-          <p>Unicode対応の正規表現: <code>/[\p{L}\p{N}]+(?:[-'''][\p{L}\p{N}]+)*/gu</code></p>
+          <p>Unicode対応の正規表現: <code>/[\p{L}\p{N}]+(?:[-'][\p{L}\p{N}]+)*/gu</code></p>
           <p><strong>認識される単語例：</strong></p>
           <ul>
             <li>英数字：<code>hello</code>, <code>abc123</code></li>
@@ -284,10 +288,15 @@
           <h3>制限事項</h3>
           <ul>
             <li>コードブックに存在しない単語は暗号化できません</li>
-            <li>完全なワンタイムパッドではないため、十分な長さと語彙の多様性が重要</li>
+            <li>ワンタイムパッドではありません。長い本やラウンドロビンを使っても秘密情報の保護には使えません</li>
             <li>同じコードブックを繰り返し使うと統計的攻撃に脆弱になります</li>
             <li>ラウンドロビンOFFの場合、頻度分析攻撃に極めて脆弱です</li>
-            <li>大きなファイル（5MB以上）はブラウザーのパフォーマンスに影響する可能性があります</li>
+            <li>参照文は1,000,000コード単位、100,000語、50,000行まで。平文は20,000、暗号文は100,000コード単位まで</li>
+            <li>1回の変換は10,000語または10,000座標まで。超過は切り捨てず拒否します</li>
+            <li>出力は暗号文100,000、復号結果1,000,000コード単位まで。短い座標から巨大な文章が作られることを防ぎます</li>
+            <li>句読点、元の改行、余分な空白は復元しません。復号結果は正規化後の単語を空白でつないだものです</li>
+            <li>日本語の連続文は1語扱いです。単語の内部に使える区切りはASCIIのハイフンとアポストロフィです。don’tはdonとtに分かれます</li>
+            <li>入力や結果は保存しません。保存するのは選択した表示言語のみです。コピーした内容はクリップボードに残ります</li>
           </ul>
         </div>
       </details>
@@ -297,10 +306,14 @@
 
   <footer>
     <div class="footer">
-      🔗 GitHubリポジトリはこちら（ <a href="https://github.com/ipusiron/book-code-builder" target="_blank" rel="noopener noreferrer">ipusiron/book-code-builder</a> ）
+      <a href="https://github.com/ipusiron/book-code-builder" target="_blank" rel="noopener noreferrer">🔗 GitHubリポジトリ：ipusiron/book-code-builder</a>
     </div>
   </footer>
 
+  <script src="core.js"></script>
+  <script src="messages.js"></script>
+  <script src="static-messages.js"></script>
+  <script src="i18n.js"></script>
   <script src="script.js"></script>
 </body>
 </html>

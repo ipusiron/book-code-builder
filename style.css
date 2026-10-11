@@ -26,17 +26,19 @@
 :root {
   --bg: #fafafa;           /* Page background */
   --fg: #1f2937;           /* Primary text color */
-  --muted: #6b7280;        /* Secondary text color */
-  --accent: #0ea5e9;       /* Brand color (links, buttons) */
+  --muted: #4b5563;        /* Secondary text color */
+  --accent: #0369a1;       /* Brand color (links, buttons) */
+  --on-accent: #ffffff;
+  --info-bg: #dbeafe;
   --panel: #ffffff;        /* Card/panel background */
   --border: #e5e7eb;       /* Border color */
   --code: #111827;         /* Code text color */
   --hl: #fff7cc;           /* Highlight background */
-  --error: #dc2626;        /* Error text color */
+  --error: #991b1b;        /* Error text color */
   --error-bg: #fee2e2;     /* Error background */
-  --success: #16a34a;      /* Success text color */
+  --success: #166534;      /* Success text color */
   --success-bg: #dcfce7;   /* Success background */
-  --warning: #ca8a04;      /* Warning text color */
+  --warning: #854d0e;      /* Warning text color */
   --warning-bg: #fef9c3;   /* Warning background */
 }
 
@@ -58,6 +60,8 @@
     --fg: #e2e8f0;           /* Light text */
     --muted: #94a3b8;        /* Muted text */
     --accent: #38bdf8;       /* Bright accent */
+    --on-accent: #0f172a;
+    --info-bg: #082f49;
     --panel: #1e293b;        /* Elevated panel */
     --border: #334155;       /* Subtle border */
     --code: #f1f5f9;         /* Code text */
@@ -78,7 +82,8 @@
  * Universal box-sizing for predictable layouts
  * Includes padding/border in element dimensions
  */
-* { box-sizing: border-box; }
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
 
 /**
  * Base styles for html and body
@@ -106,7 +111,10 @@ html, body {
 .app-header {
   padding: 24px 16px 8px;
   text-align: center;
+  max-width: 1100px;
+  margin-inline: auto;
 }
+.header-actions { display: flex; justify-content: center; margin-bottom: 12px; }
 .app-header h1 {
   margin: 0;
   font-size: 28px;
@@ -191,10 +199,10 @@ textarea {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 12px;
-  background: #fff;
+  background: var(--panel);
   color: var(--fg);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-  font-size: 14px;
+  font-size: 16px;
   resize: vertical;
 }
 
@@ -286,7 +294,10 @@ textarea {
  */
 button {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
+  min-height: 44px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   border: none;
   border-radius: 10px;
   padding: 10px 14px;
@@ -350,7 +361,8 @@ button.secondary {
  */
 .tabs {
   display: flex;
-  gap: 4px;
+  gap: 8px;
+  justify-content: center;
   margin: 16px 0 0;
   flex-wrap: wrap;
   border-bottom: none;
@@ -449,7 +461,7 @@ button.secondary {
   border-radius: 6px;
   transition: background 0.15s;
 }
-.word:hover { background: #eef6ff; }
+.word:hover { background: var(--hl); }
 .word.active { background: var(--hl); }
 
 /* ========================================
@@ -526,7 +538,7 @@ button.secondary {
 }
 .notes.info {
   color: var(--accent);
-  background: #dbeafe;
+  background: var(--info-bg);
   border-left: 3px solid var(--accent);
 }
 @media (prefers-color-scheme: dark) {
@@ -785,7 +797,7 @@ textarea:focus-visible {
  * Used in viewer for [p:l] display
  */
 .line-number {
-  color: #9ca3af;
+  color: var(--muted);
 }
 
 /**
@@ -844,7 +856,7 @@ textarea:focus-visible {
   /* Tabs remain horizontal but adapt sizing */
   .tabs {
     flex-wrap: wrap;
-    gap: 2px;
+    gap: 8px;
   }
 
   .tab {
@@ -915,3 +927,73 @@ textarea:focus-visible {
 /* ========================================
    END OF STYLESHEET
    ======================================== */
+
+/* Input and output layout remains usable before desktop enhancements. */
+input[type="number"] {
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 16px;
+  min-height: 44px;
+  max-width: 100%;
+  width: 6rem;
+  padding: 6px;
+}
+.controls > *, .viewer-controls > * { min-width: 0; }
+.check-control { display: flex; align-items: flex-start; gap: 8px; }
+.check-control input { margin-top: 14px; }
+.check-control label { min-height: 44px; padding-block: 8px; }
+.panel > .controls { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; }
+.panel > label, .tabcontent > label { display: block; margin-block: 12px 6px; }
+.help-text { display: block; font-size: 0.875rem; color: var(--muted); }
+.notes, .viewer-selection, .accordion-content, footer { overflow-wrap: anywhere; }
+.notes:empty { display: none; }
+.viewer { white-space: normal; }
+.viewer-selection { white-space: pre-wrap; }
+.line { padding: 6px; overflow-wrap: anywhere; }
+.target-line { border-inline-start: 3px solid var(--accent); background: var(--bg); }
+.word {
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  min-width: 44px;
+  padding: 6px;
+  margin: 3px;
+  border: 1px solid var(--border);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.word:hover, .word.active { color: var(--fg); }
+.copy-btn, .sync-btn {
+  position: static;
+  margin: 0;
+  white-space: normal;
+  font-size: 0.875rem;
+}
+.output-with-copy, .input-with-sync {
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: stretch;
+  gap: 10px;
+  margin-block: 16px;
+}
+.copy-btn:hover:not(:disabled), .sync-btn:hover:not(:disabled), .preset-btn:hover {
+  color: var(--on-accent);
+}
+.tabcontent.active { border-radius: 12px; }
+.tabs { margin-bottom: 12px; }
+.tab { border: 1px solid var(--border); border-radius: 10px; }
+.tab.active { border: 2px solid var(--accent); margin: 0; }
+.preset-btn { text-align: start; }
+.viewer-controls { flex-wrap: wrap; }
+.accordion summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+@media (min-width: 641px) {
+  .copy-btn, .sync-btn { align-self: flex-end; }
+  .panel > .controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .header-actions { justify-content: flex-end; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}

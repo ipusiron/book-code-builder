@@ -8,8 +8,7 @@
 // This application implements the following security measures:
 //
 // 1. XSS Prevention:
-//    - escapeHtml() function used for all user-provided content before innerHTML
-//    - textContent used for simple text updates (safer than innerHTML)
+//    - textContent and text nodes used for all user-derived display strings
 //    - textarea.value used for user input/output (no HTML parsing)
 //
 // 2. Path Traversal Prevention:
@@ -22,7 +21,7 @@
 //    - No eval() or inline scripts used
 //
 // 4. Input Validation:
-//    - Numeric inputs validated with Math.max/min
+//    - Numeric inputs validated as positive safe integers within bounds
 //    - Coordinate parsing uses regex with strict format (p:l:w)
 //    - File loading from trusted manifest.json only
 //
@@ -47,11 +46,8 @@ const $$ = (sel) => Array.from(document.querySelectorAll(sel));
  * - NFKC: Converts full-width characters to half-width (e.g., "ＡＢＣ" → "ABC")
  * - lower: Case-insensitive matching (e.g., "Hello" → "hello")
  */
-function normalizeText(str, { lower = true, nfkc = true } = {}) {
-  let s = str;
-  if (nfkc && s.normalize) s = s.normalize('NFKC');
-  if (lower) s = s.toLowerCase();
-  return s;
+function normalizeText(str, options) {
+  return BookCodeCore.normalizeText(str, options);
 }
 
 /**
@@ -72,7 +68,6 @@ function normalizeText(str, { lower = true, nfkc = true } = {}) {
  * - g: Global (find all matches)
  * - u: Unicode mode (enables \p{} patterns)
  */
-const WORD_RE = /[\p{L}\p{N}]+(?:[-'''][\p{L}\p{N}]+)*/gu;
 
 /**
  * Extract words from a line of text
@@ -80,7 +75,7 @@ const WORD_RE = /[\p{L}\p{N}]+(?:[-'''][\p{L}\p{N}]+)*/gu;
  * @returns {string[]} Array of words found in the line
  */
 function tokenize(line) {
-  return (line.match(WORD_RE) || []);
+  return BookCodeCore.tokenize(line);
 }
 
 /**
@@ -97,16 +92,8 @@ function tokenize(line) {
  *
  * Invalid tokens return null in the array for error tracking
  */
-function parseCodeTokens(s) {
-  // Accept separators: space, comma, semicolon, newline
-  const raw = s.split(/[\s,;]+/).filter(Boolean);
-  const triples = [];
-  for (const t of raw) {
-    const m = t.match(/^(\d+):(\d+):(\d+)$/);
-    if (!m) { triples.push(null); continue; }
-    triples.push([+m[1], +m[2], +m[3]]);
-  }
-  return triples;
+function parseCodeTokens(text) {
+  return BookCodeCore.parseCodeTokens(text);
 }
 
 /**
@@ -121,34 +108,31 @@ function parseCodeTokens(s) {
  * - Gracefully handles browsers without clipboard API
  */
 function copyToClipboard(text, button) {
-  if (!navigator.clipboard) return;
-
-  navigator.clipboard.writeText(text)
-    .then(() => {
-      const originalText = button.textContent;
-      button.textContent = '✓ コピー完了';
-      button.disabled = true;
-      setTimeout(() => {
-        button.textContent = originalText;
-        button.disabled = false;
-      }, 2000);
-    })
-    .catch(() => {
-      button.textContent = '✗ 失敗';
-      setTimeout(() => {
-        button.textContent = originalText;
-      }, 2000);
-    });
-}
-
-// Security: Escape HTML special characters to prevent XSS
-// This function converts user-provided strings into safe HTML by escaping:
-//   < to &lt;, > to &gt;, & to &amp;, " to &quot;, ' to &#39;
-// Used before inserting user content into innerHTML
-function escapeHtml(str){
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+  if (!text || button.disabled) return;
+  const selector = '#' + button.id;
+  const task = { key: 'copying' };
+  copyTasks.set(selector, task);
+  button.disabled = true;
+  button.textContent = t(task.key);
+  const finish = key => {
+    if (copyTasks.get(selector) !== task || task.finished) return;
+    task.finished = true;
+    clearTimeout(task.timeout);
+    task.key = key;
+    button.textContent = t(key);
+    setTimeout(() => {
+      if (copyTasks.get(selector) !== task) return;
+      copyTasks.delete(selector);
+      button.textContent = t('copy');
+      if (selector === '#copyCipherBtn') updateCopyCipherButton();
+      else updateCopyPlainButton();
+    }, 2000);
+  };
+  if (!navigator.clipboard?.writeText) { finish('copyUnsupported'); return; }
+  task.timeout = setTimeout(() => finish('copyFailed'), 8000);
+  try {
+    Promise.resolve(navigator.clipboard.writeText(text)).then(() => finish('copied'), () => finish('copyFailed'));
+  } catch (_) { finish('copyFailed'); }
 }
 
 // -------------------- State --------------------
@@ -175,6 +159,8 @@ function escapeHtml(str){
  * - normalizedLines: Flat array of all normalized text lines for viewer
  */
 const state = {
+  ready: false,
+  building: false,
   lpp: 40,
   normCase: true,
   normNFKC: true,
@@ -207,98 +193,117 @@ const state = {
  * 7. Update UI with stats and reset viewer
  *
  * Performance:
- * - Uses setTimeout to prevent UI blocking during indexing
- * - Efficient for texts up to ~5MB
+ * - setTimeout lets the building indicator paint before synchronous computation
+ * - Computation still runs on the main thread; core limits bound accepted input
  *
  * Time complexity: O(n) where n is total number of words
  * Space complexity: O(n) for index storage
  */
+let book = null;
+let revision = 0;
+let loadRevision = 0;
+let loadController = null;
+let authStopped = false;
+let snapshot = null;
+let statusMessages = new Map();
+const copyTasks = new Map();
+
+function t(key, values = {}) {
+  const dictionary = BookCodeMessages[document.documentElement.lang] || BookCodeMessages.ja;
+  return (dictionary[key] || BookCodeMessages.ja[key] || key).replace(/\{(\w+)\}/g, (_, name) => String(values[name] ?? ''));
+}
+
+function note(selector, key, values = {}, type = 'info') {
+  statusMessages.set(selector, { key, values, type });
+  setNote($(selector), t(key, values), type);
+}
+
+function resetResult(kind) {
+  const encrypting = kind === 'encrypt';
+  $(encrypting ? '#cipherOutput' : '#plainOutput').value = '';
+  const selector = encrypting ? '#copyCipherBtn' : '#copyPlainBtn';
+  copyTasks.delete(selector);
+  $(selector).textContent = t('copy');
+  $(selector).disabled = true;
+  if (encrypting) $('#syncCipherBtn').disabled = true;
+  note(encrypting ? '#encryptNotes' : '#decryptNotes', 'changed');
+}
+
+function invalidateBook(cancelLoad = true) {
+  revision++;
+  if (cancelLoad) {
+    loadRevision++;
+    if (loadController) loadController.abort();
+    loadController = null;
+    $('#loadStatus').textContent = '';
+    statusMessages.delete('#loadStatus');
+  }
+  book = null;
+  snapshot = null;
+  state.ready = false;
+  state.building = false;
+  state.structure = [];
+  state.index = new Map();
+  state.rr.clear();
+  state.totals = { pages: 0, lines: 0, words: 0, unique: 0 };
+  $('#stats').textContent = '';
+  resetResult('encrypt');
+  resetResult('decrypt');
+  $('#buildBtn').disabled = false;
+  $('#buildBtn').textContent = t('build');
+  note('#bookStatus', 'dirty', {}, 'warning');
+  renderViewer(1, 1);
+  updateEncryptButton();
+  updateDecryptButton();
+  updatePaginationButtons();
+}
+
+function readSnapshot() {
+  return [$('#referenceText').value, $('#linesPerPage').value, $('#normalizeCase').checked, $('#normalizeNFKC').checked];
+}
+
+function isReady() {
+  if (!book || !state.ready || state.building) return false;
+  if (JSON.stringify(readSnapshot()) !== JSON.stringify(snapshot)) {
+    invalidateBook();
+    return false;
+  }
+  return true;
+}
+
 function buildIndex() {
-  const btn = $('#buildBtn');
-  const originalText = btn.textContent;
-  btn.textContent = '構築中...';
-  btn.disabled = true;
-
-  // Use setTimeout to allow UI to update
+  invalidateBook();
+  const ticket = revision;
+  const input = readSnapshot();
+  state.building = true;
+  $('#buildBtn').textContent = t('building');
+  $('#buildBtn').disabled = true;
+  note('#bookStatus', 'building');
   setTimeout(() => {
-    state.lpp = Math.max(1, +$('#linesPerPage').value || 40);
-    state.normCase = $('#normalizeCase').checked;
-    state.normNFKC = $('#normalizeNFKC').checked;
-    state.useRoundRobin = $('#useRoundRobin').checked;
-
-    const raw = $('#referenceText').value;
-    const normalizedAll = normalizeText(raw, { lower: state.normCase, nfkc: state.normNFKC });
-
-    const lines = normalizedAll.split(/\r?\n/);
-    state.normalizedLines = lines.slice();
-
-    // Group lines into pages of LPP
-    const pages = [];
-    for (let i = 0; i < lines.length; i += state.lpp) {
-      pages.push(lines.slice(i, i + state.lpp));
+    if (ticket !== revision) return;
+    try {
+      const next = BookCodeCore.buildIndex(input[0], { lpp: input[1], lower: input[2], nfkc: input[3] });
+      book = next;
+      Object.assign(state, next);
+      state.rr = new Map();
+      state.useRoundRobin = $('#useRoundRobin').checked;
+      snapshot = input;
+      state.ready = true;
+      $('#stats').textContent = t('stats', state.totals);
+      $('#viewPage').value = 1;
+      $('#viewLine').value = 1;
+      note('#bookStatus', 'ready', {}, 'success');
+      renderViewer(1, 1);
+    } catch (error) {
+      const key = 'error_' + error.message;
+      note('#bookStatus', BookCodeMessages.ja[key] ? key : 'error_unknown', {}, 'error');
+    } finally {
+      state.building = false;
+      $('#buildBtn').textContent = t('build');
+      $('#buildBtn').disabled = false;
+      updateEncryptButton();
+      updateDecryptButton();
     }
-
-    // Build structure and index
-    state.structure = [];
-    state.index.clear();
-    state.rr.clear();
-
-    let totalLines = 0;
-    let totalWords = 0;
-
-    pages.forEach((pageLines, pIdx) => {
-      const linesArr = [];
-      pageLines.forEach((ln, lIdx) => {
-        const words = tokenize(ln);
-        totalLines += 1;
-        totalWords += words.length;
-
-        // Record positions
-        words.forEach((w, wIdx) => {
-          const key = w; // already normalized
-          const loc = { p: pIdx + 1, l: lIdx + 1, w: wIdx + 1 };
-          if (!state.index.has(key)) state.index.set(key, []);
-          state.index.get(key).push(loc);
-        });
-
-        linesArr.push(words);
-      });
-      state.structure.push(linesArr);
-    });
-
-    const unique = state.index.size;
-    state.totals = {
-      pages: pages.length,
-      lines: totalLines,
-      words: totalWords,
-      unique
-    };
-
-    // Update stats with improved design
-    const stats = $('#stats');
-    stats.innerHTML = `
-      <div class="stats-grid">
-        <div class="stat-item">📄 ページ数: <strong>${state.totals.pages}</strong></div>
-        <div class="stat-item">📝 行数: <strong>${state.totals.lines}</strong></div>
-        <div class="stat-item">💬 単語数: <strong>${state.totals.words}</strong></div>
-        <div class="stat-item">✨ ユニーク: <strong>${state.totals.unique}</strong></div>
-      </div>
-    `;
-
-    // Reset viewer default to 1:1
-    $('#viewPage').value = 1;
-    $('#viewLine').value = 1;
-
-    // Notes with proper styling
-    setNote($('#encryptNotes'), '未収録語は {???} で出力します。語の多重出現はラウンドロビンで割当。', 'info');
-    setNote($('#decryptNotes'), '不正なトークンや範囲外は [?] として出力します。', 'info');
-
-    // Refresh viewer first page
-    renderViewer(1, 1);
-
-    // Restore button
-    btn.textContent = originalText;
-    btn.disabled = false;
   }, 50);
 }
 
@@ -336,61 +341,23 @@ function setNote(element, message, type = '') {
  * - Example: "the" appears 100 times → uses all 100 coordinates in rotation
  *
  * Security note:
- * - Round-robin ON improves resistance to frequency analysis
- * - Round-robin OFF makes cipher vulnerable to frequency attacks
+ * - Round-robin distributes occurrences across coordinates deterministically
+ * - Neither mode is suitable for protecting secrets
  */
 function encrypt() {
-  const srcRaw = $('#plainInput').value;
-  if (!srcRaw.trim()) {
-    $('#cipherOutput').value = '';
+  resetResult('encrypt');
+  if (!isReady()) { note('#encryptNotes', 'needBuild', {}, 'warning'); return; }
+  try {
+    const result = BookCodeCore.encode(book, $('#plainInput').value, state.useRoundRobin, state.rr);
+    state.rr = result.pointers;
+    $('#cipherOutput').value = result.text;
     updateCopyCipherButton();
-    $('#syncCipherBtn').disabled = true;
-    setNote($('#encryptNotes'), '入力が空です。', 'warning');
-    return;
-  }
-  if (state.structure.length === 0) buildIndex();
-
-  const norm = normalizeText(srcRaw, { lower: state.normCase, nfkc: state.normNFKC });
-  const words = tokenize(norm);
-
-  const codes = [];
-  const missing = [];
-
-  for (const w of words) {
-    const locs = state.index.get(w);
-    if (!locs || locs.length === 0) {
-      codes.push('{???}');
-      missing.push(w);
-    } else {
-      let loc;
-      if (state.useRoundRobin) {
-        // Round-robin pick: cycle through all occurrences
-        const ptr = state.rr.get(w) || 0;
-        loc = locs[ptr % locs.length];
-        state.rr.set(w, ptr + 1);
-      } else {
-        // Always use the first occurrence
-        loc = locs[0];
-      }
-      codes.push(`${loc.p}:${loc.l}:${loc.w}`);
-    }
-  }
-
-  $('#cipherOutput').value = codes.join(' ');
-
-  // Update button states
-  updateCopyCipherButton();
-  const syncBtn = $('#syncCipherBtn');
-  if (syncBtn && codes.length > 0) {
-    syncBtn.disabled = false;
-  }
-
-  if (missing.length) {
-    const noteEl = $('#encryptNotes');
-    noteEl.innerHTML = `未収録語（${missing.length}）: <code>${escapeHtml(missing.slice(0, 10).join(', '))}${missing.length>10?' …':''}</code>`;
-    noteEl.className = 'notes warning';
-  } else {
-    setNote($('#encryptNotes'), 'すべて符号化できました。', 'success');
+    $('#syncCipherBtn').disabled = false;
+    if (result.missing.length) {
+      note('#encryptNotes', 'missing', { n: result.missing.length, words: result.missing.slice(0, 10).join(', ') }, 'warning');
+    } else note('#encryptNotes', 'encoded', { n: result.count }, 'success');
+  } catch (error) {
+    note('#encryptNotes', BookCodeMessages.ja['error_' + error.message] ? 'error_' + error.message : 'error_unknown', {}, 'error');
   }
 }
 
@@ -405,6 +372,7 @@ function syncCipher() {
   const cipherText = $('#cipherOutput').value;
   if (cipherText.trim()) {
     $('#cipherInput').value = cipherText;
+    resetResult('decrypt');
     $('#cipherInput').focus();
     // Trigger input event to enable decrypt button
     updateDecryptButton();
@@ -424,12 +392,12 @@ function syncCipher() {
  */
 function updateEncryptButton() {
   const plainInput = $('#plainInput').value.trim();
-  $('#encryptBtn').disabled = !plainInput;
+  $('#encryptBtn').disabled = !plainInput || !state.ready || state.building;
 }
 
 function updateDecryptButton() {
   const cipherInput = $('#cipherInput').value.trim();
-  $('#decryptBtn').disabled = !cipherInput;
+  $('#decryptBtn').disabled = !cipherInput || !state.ready || state.building;
 }
 
 function updateCopyCipherButton() {
@@ -459,44 +427,20 @@ function updateCopyPlainButton() {
  * - Out of range: "999:999:999" → [?]
  * - Counts errors and displays warning
  *
- * Note: Decryption always succeeds if coordinates are valid,
- * regardless of normalization settings (uses pre-normalized structure)
+ * Note: Coordinates refer to this exact indexed text and its normalization settings.
+ * A valid coordinate in a different book can silently return a different word.
  */
 function decrypt() {
-  const cipherRaw = $('#cipherInput').value;
-  if (!cipherRaw.trim()) {
-    $('#plainOutput').value = '';
+  resetResult('decrypt');
+  if (!isReady()) { note('#decryptNotes', 'needBuild', {}, 'warning'); return; }
+  try {
+    const result = BookCodeCore.decode(book, $('#cipherInput').value);
+    $('#plainOutput').value = result.text;
     updateCopyPlainButton();
-    setNote($('#decryptNotes'), '入力が空です。', 'warning');
-    return;
-  }
-  if (state.structure.length === 0) buildIndex();
-
-  const triples = parseCodeTokens(cipherRaw);
-  const out = [];
-  let bad = 0;
-
-  for (const t of triples) {
-    if (!t) { out.push('[?]'); bad++; continue; }
-    const [p, l, w] = t;
-    const page = state.structure[p - 1];
-    if (!page) { out.push('[?]'); bad++; continue; }
-    const line = page[l - 1];
-    if (!line) { out.push('[?]'); bad++; continue; }
-    const word = line[w - 1];
-    if (!word) { out.push('[?]'); bad++; continue; }
-    out.push(word);
-  }
-
-  $('#plainOutput').value = out.join(' ');
-
-  // Update copy button state
-  updateCopyPlainButton();
-
-  if (bad) {
-    setNote($('#decryptNotes'), `警告：${bad} トークンが不正/範囲外です。`, 'error');
-  } else {
-    setNote($('#decryptNotes'), '復号に成功しました。', 'success');
+    if (result.bad) note('#decryptNotes', 'badCodes', { n: result.bad }, 'error');
+    else note('#decryptNotes', 'decoded', {}, 'success');
+  } catch (error) {
+    note('#decryptNotes', BookCodeMessages.ja['error_' + error.message] ? 'error_' + error.message : 'error_unknown', {}, 'error');
   }
 }
 
@@ -504,96 +448,97 @@ function decrypt() {
 /**
  * Render codebook viewer with clickable words
  * @param {number} pageNum - Page number to display (1-indexed)
- * @param {number} lineNum - Line number (currently unused, kept for future use)
+ * @param {number} lineNum - First line to display (1-indexed)
  *
  * Features:
- * - Shows one page at a time
+ * - Shows up to 100 lines and 2,000 words from the selected line
  * - Each line prefixed with [p:l] coordinate
- * - Words are clickable to show all occurrences
+ * - Words are buttons that show occurrence counts and up to 100 coordinates
  * - Pagination buttons for navigation
  *
  * Word click behavior:
  * - Highlights clicked word
- * - Shows all coordinates where this word appears
+ * - Shows the first 100 coordinates where this word appears
  * - Highlights current coordinate in the list
  */
 function renderViewer(pageNum, lineNum) {
-  if (state.structure.length === 0) {
-    $('#viewer').textContent = 'インデックス未構築です。まずは「インデックス構築」を実行してください。';
-    $('#viewerSelection').classList.add('hidden');
-    return;
-  }
-  const p = Math.max(1, Math.min(pageNum, state.totals.pages));
-  const page = state.structure[p - 1];
-  if (!page) {
-    $('#viewer').textContent = '範囲外のページです。';
-    $('#viewerSelection').classList.add('hidden');
-    return;
-  }
-
-  // Clear previous selection when changing pages
+  const viewer = $('#viewer');
+  viewer.replaceChildren();
   $('#viewerSelection').classList.add('hidden');
-
-  // Update page input to reflect actual page shown
+  state.selection = null;
+  if (!state.ready || !book) {
+    viewer.textContent = t('viewerEmpty');
+    updatePaginationButtons();
+    return;
+  }
+  let p, first;
+  try {
+    p = BookCodeCore.positiveInteger(pageNum, state.totals.pages);
+    first = BookCodeCore.positiveInteger(lineNum, state.structure[p - 1].length);
+  } catch (_) {
+    viewer.textContent = t('viewerInvalid');
+    updatePaginationButtons();
+    return;
+  }
   $('#viewPage').value = p;
-
-  const linesHtml = page.map((words, idx) => {
-    const ln = idx + 1;
-    const spans = words.map((w, wi) => `<span class="word" data-p="${p}" data-l="${ln}" data-w="${wi+1}">${escapeHtml(w)}</span>`).join(' ');
-    return `<div class="line"><span class="line-number">[${p}:${ln}]</span> ${spans}</div>`;
-  }).join('\n');
-
-  $('#viewer').innerHTML = linesHtml;
-
-  // Click to highlight a word (simulate selection)
-  $('#viewer').querySelectorAll('.word').forEach(el => {
-    el.addEventListener('click', () => {
-      $('#viewer').querySelectorAll('.word').forEach(n => n.classList.remove('active'));
-      el.classList.add('active');
-      const p = el.getAttribute('data-p');
-      const l = el.getAttribute('data-l');
-      const w = el.getAttribute('data-w');
-      const word = el.textContent;
-      const clickedCoord = `${p}:${l}:${w}`;
-
-      // Get all occurrences of this word from the index
-      const allOccurrences = state.index.get(word) || [];
-
-      const selectionEl = $('#viewerSelection');
-      if (allOccurrences.length === 0) {
-        selectionEl.textContent = `選択: ${clickedCoord} → "${word}" (インデックスに未登録)`;
-      } else if (allOccurrences.length === 1) {
-        selectionEl.innerHTML = `選択: <strong>${clickedCoord}</strong> → <strong>"${escapeHtml(word)}"</strong> (この単語は1箇所のみ出現)`;
-      } else {
-        // Multiple occurrences - show all coordinates
-        const coordList = allOccurrences.map(loc => {
-          const coord = `${loc.p}:${loc.l}:${loc.w}`;
-          return coord === clickedCoord
-            ? `<strong class="coord-highlight">${coord}</strong>`
-            : coord;
-        }).join(', ');
-        selectionEl.innerHTML = `選択: <strong>"${escapeHtml(word)}"</strong> → ${allOccurrences.length}箇所に出現<br>` +
-                                `座標: ${coordList}`;
-      }
-      selectionEl.classList.remove('hidden');
-    });
-  });
-
-  // Update pagination button states
+  $('#viewLine').value = first;
+  const page = state.structure[p - 1];
+  const limits = BookCodeCore.LIMITS;
+  let wordCount = 0;
+  let lineCount = 0;
+  for (let i = first - 1; i < page.length && lineCount < limits.viewLines && wordCount < limits.viewWords; i++) {
+    const line = document.createElement('div');
+    line.className = i === first - 1 ? 'line target-line' : 'line';
+    const label = document.createElement('span');
+    label.className = 'line-number';
+    label.textContent = '[' + p + ':' + (i + 1) + '] ';
+    line.append(label);
+    const words = page[i];
+    for (let w = 0; w < words.length && wordCount < limits.viewWords; w++) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'word';
+      button.textContent = words[w].length > 120 ? words[w].slice(0, 120) + '…' : words[w];
+      button.dataset.coord = p + ':' + (i + 1) + ':' + (w + 1);
+      button.addEventListener('click', () => {
+        viewer.querySelectorAll('.word').forEach(el => el.classList.remove('active'));
+        button.classList.add('active');
+        state.selection = { word: words[w], coord: button.dataset.coord };
+        renderSelection();
+      });
+      line.append(button, document.createTextNode(' '));
+      wordCount++;
+    }
+    viewer.append(line);
+    lineCount++;
+  }
+  const remaining = page.slice(first - 1).reduce((n, line) => n + line.length, 0);
+  if (wordCount < remaining || lineCount < page.length - first + 1) {
+    const hint = document.createElement('p');
+    hint.className = 'notes warning';
+    hint.textContent = t('viewerLimit');
+    viewer.append(hint);
+  }
   updatePaginationButtons();
 }
 
-function updatePaginationButtons() {
-  const currentPage = parseInt($('#viewPage').value) || 1;
-  const prevBtn = $('#prevPageBtn');
-  const nextBtn = $('#nextPageBtn');
+function renderSelection() {
+  if (!state.selection || !book) return;
+  const { word, coord } = state.selection;
+  const all = state.index.get(word) || [];
+  const selection = $('#viewerSelection');
+  const preview = word.length > 120 ? word.slice(0, 120) + '…' : word;
+  selection.textContent = t('selection', { word: preview, coord, n: all.length }) + '\n' +
+    all.slice(0, BookCodeCore.LIMITS.occurrences).map(loc => loc.p + ':' + loc.l + ':' + loc.w).join(', ');
+  if (all.length > BookCodeCore.LIMITS.occurrences) selection.append('\n' + t('occurrenceLimit'));
+  selection.classList.remove('hidden');
+}
 
-  if (prevBtn) {
-    prevBtn.disabled = currentPage <= 1;
-  }
-  if (nextBtn) {
-    nextBtn.disabled = currentPage >= state.totals.pages;
-  }
+function updatePaginationButtons() {
+  const currentPage = Number($('#viewPage').value);
+  $('#prevPageBtn').disabled = !state.ready || !Number.isSafeInteger(currentPage) || currentPage <= 1;
+  $('#nextPageBtn').disabled = !state.ready || !Number.isSafeInteger(currentPage) || currentPage >= state.totals.pages;
+  $('#viewBtn').disabled = !state.ready;
 }
 
 // -------------------- Tabs --------------------
@@ -606,15 +551,57 @@ function updatePaginationButtons() {
  * - Active class controls visibility via CSS
  */
 function setupTabs() {
-  $$('.tab').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const tabId = btn.getAttribute('data-tab');
-      $$('.tab').forEach(b => b.classList.remove('active'));
-      $$('.tabcontent').forEach(c => c.classList.remove('active'));
-      btn.classList.add('active');
-      $(`#${tabId}`).classList.add('active');
+  const tabs = $$('.tab');
+  $('.tabs').setAttribute('role', 'tablist');
+  function activate(selected, focus = false) {
+    tabs.forEach((button, index) => {
+      const active = index === selected;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-selected', String(active));
+      button.tabIndex = active ? 0 : -1;
+      const panel = $('#' + button.dataset.tab);
+      panel.classList.toggle('active', active);
+      panel.hidden = !active;
+    });
+    if (focus) tabs[selected].focus();
+  }
+  tabs.forEach((button, index) => {
+    button.id = 'tab-' + button.dataset.tab;
+    button.setAttribute('role', 'tab');
+    button.setAttribute('aria-controls', button.dataset.tab);
+    const panel = $('#' + button.dataset.tab);
+    panel.setAttribute('role', 'tabpanel');
+    panel.setAttribute('aria-labelledby', button.id);
+    button.addEventListener('click', () => activate(index));
+    button.addEventListener('keydown', event => {
+      const next = { ArrowRight: (index + 1) % tabs.length, ArrowLeft: (index + tabs.length - 1) % tabs.length,
+        Home: 0, End: tabs.length - 1 }[event.key];
+      if (next !== undefined) { event.preventDefault(); activate(next, true); }
     });
   });
+  activate(0);
+}
+
+function refreshLanguage() {
+  for (const [selector, message] of statusMessages) {
+    setNote($(selector), t(message.key, message.values), message.type);
+  }
+  $('#buildBtn').textContent = t(state.building ? 'building' : 'build');
+  if (state.ready) $('#stats').textContent = t('stats', state.totals);
+  for (const selector of ['#copyCipherBtn', '#copyPlainBtn']) {
+    $(selector).textContent = t(copyTasks.get(selector)?.key || 'copy');
+  }
+  $$('#codebookPresets [data-book]').forEach(button => {
+    const key = 'book_' + button.dataset.book;
+    button.textContent = BookCodeMessages.ja[key] ? t(key) : button.dataset.title;
+  });
+  const selected = state.selection;
+  renderViewer($('#viewPage').value, $('#viewLine').value);
+  state.selection = selected;
+  if (selected) {
+    $$('#viewer .word').forEach(button => button.classList.toggle('active', button.dataset.coord === selected.coord));
+    renderSelection();
+  }
 }
 
 // -------------------- Plaintext Presets --------------------
@@ -622,8 +609,8 @@ function setupTabs() {
  * Sample plaintext for quick testing
  *
  * Preset 1: Short message (5 words)
- * Preset 2: Medium message (10 words) - spy scenario
- * Preset 3: Long message (28 words) - from Aesop's Fables
+ * Preset 2: Medium message (9 words) - spy scenario
+ * Preset 3: Long message (23 words) - based on Aesop's Fables
  */
 const PLAINTEXT_PRESETS = {
   1: "this is a secret message",
@@ -639,6 +626,7 @@ function setPlaintextPreset(presetId) {
   const text = PLAINTEXT_PRESETS[presetId];
   if (text) {
     $('#plainInput').value = text;
+    resetResult('encrypt');
     $('#plainInput').focus();
     updateEncryptButton();
   }
@@ -652,7 +640,7 @@ function setPlaintextPreset(presetId) {
  * - Classic fable with moral lesson
  * - Good word variety for testing
  * - Contains repeated words for round-robin testing
- * - ~100 words, suitable for demonstration
+ * - 155 tokens under the default normalization settings
  */
 const SAMPLE = `The Project Gutenberg eBook of Aesop's Fables.
 
@@ -681,127 +669,95 @@ MORAL: The tyrant will always find a pretext for his tyranny.`;
  *
  * Returns empty array if manifest doesn't exist or fails to load
  */
-async function loadCodebookManifest() {
+async function fetchText(url, controller, limit) {
+  const timeout = setTimeout(() => controller.abort(), 10000);
   try {
-    const response = await fetch('data/manifest.json');
-    if (!response.ok) {
-      console.warn('manifest.json not found or error loading');
-      return [];
+    const response = await fetch(url, { signal: controller.signal, credentials: 'omit', redirect: 'error' });
+    if (response.status === 401) { authStopped = true; throw new Error('authStop'); }
+    if (!response.ok) throw new Error('loadFailed');
+    if (Number(response.headers.get('Content-Length')) > limit * 4) throw new Error('textLimit');
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let text = '';
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        text += decoder.decode(value, { stream: true });
+        if (text.length > limit) throw new Error('textLimit');
+      }
+      text += decoder.decode();
+      if (text.length > limit) throw new Error('textLimit');
+      return text;
+    } finally { await reader.cancel(); }
+  } finally { clearTimeout(timeout); }
+}
+
+async function loadCodebookManifest() {
+  if (location.protocol === 'file:') { note('#loadStatus', 'fileMode'); return []; }
+  if (authStopped) return [];
+  try {
+    const data = JSON.parse(await fetchText('data/manifest.json', new AbortController(), 100000));
+    if (!Array.isArray(data.codebooks) || data.codebooks.length > 50) throw new Error('catalogFailed');
+    const ids = new Set();
+    for (const entry of data.codebooks) {
+      if (!entry || typeof entry.id !== 'string' || !/^[a-z0-9-]+$/.test(entry.id) ||
+          ids.has(entry.id) || typeof entry.title !== 'string' || entry.title.length > 200 ||
+          !BookCodeCore.validateFilename(entry.filename)) throw new Error('catalogFailed');
+      ids.add(entry.id);
     }
-    const data = await response.json();
-    return data.codebooks || [];
-  } catch (err) {
-    console.error('Failed to load manifest:', err);
+    return data.codebooks;
+  } catch (error) {
+    note('#loadStatus', authStopped ? 'authStop' : 'catalogFailed', {}, 'warning');
     return [];
   }
 }
 
-// Security: Validate filename to prevent path traversal attacks
 function validateFilename(filename) {
-  // Only allow alphanumeric, spaces, hyphens, underscores, and .txt extension
-  // Reject any path separators (/, \), parent directory references (..), or other suspicious patterns
-  const safePattern = /^[a-zA-Z0-9\s\-_']+\.txt$/;
-  if (!safePattern.test(filename)) {
-    console.error('Invalid filename detected:', filename);
-    return false;
-  }
-  // Additional check: no path separators
-  if (filename.includes('/') || filename.includes('\\') || filename.includes('..')) {
-    console.error('Path traversal attempt detected:', filename);
-    return false;
-  }
-  return true;
+  return BookCodeCore.validateFilename(filename);
 }
 
-/**
- * Load codebook text file from data/ folder
- * @param {string} filename - Filename (e.g., "file.txt")
- * @returns {Promise<string|null>} File content or null on error
- *
- * Security:
- * - Validates filename before fetching (prevents path traversal)
- * - Only allows alphanumeric + spaces + hyphens + underscores
- * - Rejects "..", "/", "\" characters
- * - Shows user-friendly error messages
- */
 async function loadCodebook(filename) {
-  // Security: Validate filename before fetching
-  if (!validateFilename(filename)) {
-    alert(`セキュリティ上の理由でファイル名が拒否されました: ${filename}`);
-    return null;
-  }
-
+  if (authStopped) { note('#loadStatus', 'authStop', {}, 'error'); return; }
+  if (!validateFilename(filename)) { note('#loadStatus', 'loadFailed', {}, 'error'); return; }
+  invalidateBook();
+  const ticket = loadRevision;
+  const controller = new AbortController();
+  loadController = controller;
+  note('#loadStatus', 'loading');
   try {
-    const response = await fetch(`data/${filename}`);
-    if (!response.ok) {
-      throw new Error(`Failed to load ${filename}`);
-    }
-    const text = await response.text();
-    return text;
-  } catch (err) {
-    console.error('Failed to load codebook:', err);
-    alert(`コードブックの読み込みに失敗しました: ${filename}`);
-    return null;
+    const text = await fetchText('data/' + encodeURIComponent(filename), controller, BookCodeCore.LIMITS.reference);
+    if (ticket !== loadRevision) return;
+    // Validate before replacing the user's text.
+    BookCodeCore.buildIndex(text, { lpp: $('#linesPerPage').value,
+      lower: $('#normalizeCase').checked, nfkc: $('#normalizeNFKC').checked });
+    $('#referenceText').value = text.replace(/\r\n?/g, '\n');
+    loadController = null;
+    buildIndex();
+    note('#loadStatus', 'loaded', {}, 'success');
+  } catch (error) {
+    if (ticket !== loadRevision) return;
+    note('#loadStatus', authStopped ? 'authStop' : 'loadFailed', {}, 'error');
+  } finally {
+    if (ticket === loadRevision) loadController = null;
   }
 }
 
-/**
- * Setup codebook preset buttons from manifest
- * @returns {Promise<Object|null>} First codebook definition or null
- *
- * Process:
- * 1. Load manifest.json
- * 2. Create button for each codebook
- * 3. Button click → load file → auto-build index
- * 4. Show loading state during file fetch
- * 5. Return first codebook for auto-loading on init
- *
- * UI:
- * - Buttons show title from manifest
- * - Tooltip shows description (if provided)
- * - Loading indicator during fetch
- */
 async function setupCodebookPresets() {
   const codebooks = await loadCodebookManifest();
-
-  if (codebooks.length === 0) {
-    // No presets available, hide the preset area
-    $('#codebookPresets').classList.add('hidden');
-    return null;
-  }
-
   const container = $('#codebookPresets');
-  container.classList.remove('hidden');
-
-  // Create buttons for each codebook
-  codebooks.forEach(book => {
+  container.classList.toggle('hidden', codebooks.length === 0);
+  codebooks.forEach(entry => {
     const btn = document.createElement('button');
+    btn.type = 'button';
     btn.className = 'preset-btn';
-    btn.textContent = book.title;
-    if (book.description) {
-      btn.title = book.description;
-    }
-    btn.addEventListener('click', async () => {
-      const originalText = btn.textContent;
-      btn.textContent = '読み込み中...';
-      btn.disabled = true;
-
-      const text = await loadCodebook(book.filename);
-      if (text) {
-        $('#referenceText').value = text;
-        $('#referenceText').focus();
-        // Auto-build index after loading
-        buildIndex();
-      }
-
-      btn.textContent = originalText;
-      btn.disabled = false;
-    });
+    btn.dataset.book = entry.id;
+    btn.dataset.title = entry.title;
+    btn.textContent = BookCodeMessages.ja['book_' + entry.id] ? t('book_' + entry.id) : entry.title;
+    btn.addEventListener('click', () => loadCodebook(entry.filename));
     container.appendChild(btn);
   });
-
-  // Return the first codebook for auto-loading
-  return codebooks.length > 0 ? codebooks[0] : null;
+  return codebooks[0] || null;
 }
 
 // -------------------- Init --------------------
@@ -822,24 +778,7 @@ async function setupCodebookPresets() {
  * Note: All async operations use await to ensure proper sequencing
  */
 async function init() {
-  // Setup codebook presets first
-  const firstPreset = await setupCodebookPresets();
-
-  // Load the first preset if available, otherwise use SAMPLE
-  if (firstPreset) {
-    const text = await loadCodebook(firstPreset.filename);
-    if (text) {
-      $('#referenceText').value = text;
-    } else {
-      // Fallback to SAMPLE if loading fails
-      $('#referenceText').value = SAMPLE;
-    }
-  } else {
-    // No presets available, use SAMPLE
-    $('#referenceText').value = SAMPLE;
-  }
-
-  // Build once
+  $('#referenceText').value = SAMPLE;
   buildIndex();
 
   // Bind controls
@@ -848,7 +787,7 @@ async function init() {
   $('#decryptBtn').addEventListener('click', decrypt);
 
   // Preset buttons
-  $$('.preset-btn').forEach(btn => {
+  $$('#encryptTab .preset-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const presetId = btn.getAttribute('data-preset');
       setPlaintextPreset(presetId);
@@ -857,23 +796,31 @@ async function init() {
 
   // Copy buttons with feedback
   $('#copyCipherBtn').addEventListener('click', (e) => {
-    copyToClipboard($('#cipherOutput').value, e.target);
+    copyToClipboard($('#cipherOutput').value, e.currentTarget);
   });
   $('#copyPlainBtn').addEventListener('click', (e) => {
-    copyToClipboard($('#plainOutput').value, e.target);
+    copyToClipboard($('#plainOutput').value, e.currentTarget);
   });
 
   // Sync cipher button
   $('#syncCipherBtn').addEventListener('click', syncCipher);
 
   // Input monitoring for button states
-  $('#plainInput').addEventListener('input', updateEncryptButton);
-  $('#cipherInput').addEventListener('input', updateDecryptButton);
+  $('#plainInput').addEventListener('input', () => { resetResult('encrypt'); updateEncryptButton(); });
+  $('#cipherInput').addEventListener('input', () => { resetResult('decrypt'); updateDecryptButton(); });
+  ['referenceText', 'linesPerPage', 'normalizeCase', 'normalizeNFKC'].forEach(id => {
+    $('#' + id).addEventListener('input', () => invalidateBook());
+  });
+  $('#useRoundRobin').addEventListener('change', () => {
+    state.useRoundRobin = $('#useRoundRobin').checked;
+    state.rr.clear();
+    resetResult('encrypt');
+  });
 
   // Viewer controls
   $('#viewBtn').addEventListener('click', () => {
-    const p = +$('#viewPage').value || 1;
-    const l = +$('#viewLine').value || 1;
+    const p = $('#viewPage').value;
+    const l = $('#viewLine').value;
     renderViewer(p, l);
   });
 
@@ -921,9 +868,12 @@ async function init() {
 
   // Tabs
   setupTabs();
+  document.addEventListener('languagechange', refreshLanguage);
 
-  // Render initial viewer
-  renderViewer(1, 1);
+  // Do not replace text if the user has already edited it during manifest loading.
+  const ticket = revision;
+  const firstPreset = await setupCodebookPresets();
+  if (firstPreset && ticket === revision) await loadCodebook(firstPreset.filename);
 }
 
 // Run after DOM ready
