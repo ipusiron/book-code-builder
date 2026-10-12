@@ -64,3 +64,19 @@ test('documentation avoids outdated security claims and describes normalization 
     assert.ok(!/previously|used to|earlier version|formerly/i.test(text));
   }
 });
+
+test('paired sample table numbers in both READMEs come from the actual core', () => {
+  const samples = require('../learning-samples.js');
+  const expected = samples.map(sample => {
+    const book = C.buildIndex(sample.reference, sample);
+    const r = C.encode(book, sample.plain);
+    if (sample.id === 'complete' || sample.id === 'normalize') return [r.count];
+    if (sample.id === 'repeat') return [r.count, C.compare(book, sample.plain).differentCount];
+    return [r.count, r.encodedCount, r.missing.length, r.missingCounts.length, ...r.missingCounts.map(row => row.count)];
+  });
+  for (const text of [ja, en]) {
+    const section = text.split(/### (?:学習サンプルと変換過程|Learning samples and conversion traces)/)[1].split('### ')[0];
+    const rows = section.split('\n').filter(row => /^\|/.test(row)).slice(2);
+    assert.deepEqual(rows.map(row => (row.match(/\d+/g) || []).map(Number)), expected);
+  }
+});

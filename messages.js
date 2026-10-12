@@ -2,6 +2,18 @@
 (function (root) {
   'use strict';
   const ja = {
+    missingSummary: '未収録語は延べ{n}語、{unique}種類です。内訳は変換過程で確認できます。',
+    coverage: '変換できた語：{encoded} / {total}語。未収録：延べ{missing}語、{unique}種類。',
+    learningRange: '{start}〜{end} / {total}件', traceOccurrences: '参照文での出現数：{n}',
+    showCoordinate: '{code} を本文で確認', traceMissing: '未収録 → {???}',
+    missingCount: '{word}：{n}回', noMissing: '未収録語はありません。',
+    comparisonSummary: '全{total}語のうち、ON/OFFで座標が異なるのは{n}語です。',
+    differentCoordinate: '座標が異なります', sameCode: '同じ出力です',
+    compared: '先頭位置から比較しました。通常の巡回位置は変更していません。',
+    sample_complete: '全語を変換する例', sample_repeat: '同じ単語を繰り返す例',
+    sample_missing: '未収録語を含む例', sample_normalize: '表記と句読点を確認する例',
+    sampleSettings: '設定：ページあたり2行、大小文字の無視・NFKC・ラウンドロビンはすべてON。復号入力も消去します。',
+    sampleApplied: '学習サンプルを読み込みました。暗号化またはON/OFF比較を実行してください。',
     build: 'インデックス構築', building: '構築中...', dirty: '参照文または設定が変わりました。インデックスを構築してください。',
     ready: '構築済み。変換できます。', needBuild: 'インデックスを構築してから変換してください。',
     empty: '入力が空です。', encoded: 'すべて符号化できました（{n}語）。',
@@ -30,6 +42,18 @@
     error_outputLimit: '出力が上限を超えます。暗号文は100,000、復号結果は1,000,000コード単位までです。入力を短くしてください。',
   };
   const en = {
+    missingSummary: 'Missing: {n} occurrences of {unique} distinct words. See the conversion trace for details.',
+    coverage: 'Encoded: {encoded} / {total} words. Missing: {missing} occurrences of {unique} distinct words.',
+    learningRange: '{start}–{end} / {total} entries', traceOccurrences: 'Occurrences in the reference: {n}',
+    showCoordinate: 'View {code} in the reference', traceMissing: 'Missing → {???}',
+    missingCount: 'Occurrences of {word}: {n}', noMissing: 'No missing words.',
+    comparisonSummary: 'Coordinates differ between ON and OFF for {n} of {total} words.',
+    differentCoordinate: 'Different coordinates', sameCode: 'Same output',
+    compared: 'Compared from the first occurrence. Normal cycle positions are unchanged.',
+    sample_complete: 'All words can be encoded', sample_repeat: 'Repeated words',
+    sample_missing: 'Missing words', sample_normalize: 'Spelling and punctuation',
+    sampleSettings: 'Settings: 2 lines per page; ignore case, NFKC and round-robin all ON. The decoding input will also be cleared.',
+    sampleApplied: 'Learning sample loaded. Run encoding or the ON/OFF comparison.',
     build: 'Build index', building: 'Building...', dirty: 'The reference text or settings changed. Build the index to continue.',
     ready: 'Index ready. You can encode and decode.', needBuild: 'Build the index before encoding or decoding.',
     empty: 'The input is empty.', encoded: 'All words encoded. Words: {n}.',

@@ -11,6 +11,7 @@ Book Code Builderの計算、状態管理、入力制限、表示について説
 |---|---|
 | `core.js` | DOMに依存しない正規化、トークン化、索引、座標の符号化・復号、上限検査 |
 | `script.js` | 構築済み状態、世代番号、非同期読込、結果、コピー、タブ、ビューワー |
+| `learning-samples.js` | 本文と平文、設定を組み合わせた4種類の学習用データ |
 | `messages.js` | 日英の動的メッセージとプリセット名 |
 | `static-messages.js` | HTMLの静的な日本語に対応する英訳 |
 | `i18n.js` | 言語の決定、保存、静的文言の切替と変更通知 |
@@ -60,7 +61,8 @@ console.log(C.decode(book, encoded.text).text);
 | `tokenize(text)` | 正規表現で得た単語配列。単独では正規化しない |
 | `positiveInteger(value,max)` | 1以上max以下の安全な整数。空、非整数、範囲外は拒否 |
 | `buildIndex(raw,options)` | structure、index、normalizedLines、設定、totals |
-| `encode(book,raw,roundRobin,pointers)` | text、missing、次のpointers、count |
+| `encode(book,raw,roundRobin,pointers)` | text、missing、次のpointers、count、normalized、trace、missingCounts、encodedCount |
+| `compare(book,raw)` | 空の巡回Mapで計算したon、off、単語ごとの差のrows、differentCount |
 | `parseCodeTokens(raw)` | 座標の3要素配列、または不正トークンのnull |
 | `decode(book,raw)` | text、bad、count |
 | `validateFilename(filename)` | 許可する単独の.txtファイル名ならtrue |
@@ -69,6 +71,29 @@ console.log(C.decode(book, encoded.text).text);
 省略した `lower`、`nfkc`、`roundRobin` はtrue、`lpp` は40です。
 入力が不正なら、検査関数は `RangeError` を投げます。
 `textLimit`、`lineLimit`、`wordLimit`、`tokenLimit`、`outputLimit`、`integer`、`noWords`、`noCodes` などのキーを画面側で翻訳します。
+
+## 学習用の派生データ
+
+`encode`は実際の座標選択と同時に`trace`を作ります。
+各要素は`{word, occurrences, coordinate, code}`です。
+未収録語では出現数が0、座標がnull、codeが`{???}`になります。
+座標オブジェクトは索引から複製し、表示側が索引を書き換えないようにしています。
+
+`normalized`は単語抽出前の正規化後全文です。
+`missingCounts`は初出順の`{word, count}`配列、`encodedCount`は変換できた延べ語数です。
+集計にはMapを使い、文字列のキーをオブジェクトのプロパティとして解釈しません。
+安全性や意味の一致は評価しません。
+
+`compare`はON/OFFをそれぞれ空のMapから計算し、通常の`state.rr`を受け取りません。
+各行の`different`はON/OFFの出力文字列が異なるかを示します。
+両方が`{???}`なら差として数えません。
+どちらかの計算で上限を超えた場合は、比較全体を失敗として扱います。
+
+画面は`encodingResult`と`comparisonResult`を別々に保持します。
+言語変更とページ送りでは保存済みの結果を描画し、変換を再実行しません。
+各一覧の表示は50件ずつで、合計件数の計算は省略しません。
+学習サンプルは選択時にプレビューするだけで、明示的な適用時に入力と設定を置き換えます。
+その際に読込世代を更新し、古い非同期レスポンスを無効にします。
 
 ## ラウンドロビン割当アルゴリズム
 
@@ -241,6 +266,10 @@ Objectより常に高速、ブラウザー間で一定の速度、といった�
 長い語は先頭120コード単位と省略記号を表示し、選択時の検索は省略前の語で行います。
 全出現数はindexから求め、座標の一覧だけを先頭100件に制限します。
 
+変換過程の座標から移動するときは、対象語を含む2,000語単位の区間から表示します。
+同じ行の2,000語目より後ろでも、選択した語を表示できます。
+省略の通知を出し、言語変更時も開始位置と選択座標を保持します。
+
 ## 状態管理パターン
 
 ### 編集と結果の対応
@@ -249,9 +278,12 @@ Objectより常に高速、ブラウザー間で一定の速度、といった�
 |---|---|
 | 参照文・ページ行数・正規化変更 | 索引、暗号化結果、復号結果、巡回位置を無効化 |
 | 索引構築 | 新しいスナップショットを計算し、成功後に変換を有効化 |
-| 平文変更・平文サンプル | 暗号化結果だけを消去 |
+| 平文変更・平文サンプル | 暗号化結果、変換過程、比較結果を消去 |
 | 暗号文変更・同期 | 復号結果だけを消去 |
-| ラウンドロビン切替 | 巡回位置と暗号化結果をリセット |
+| ラウンドロビン切替 | 巡回位置、暗号化結果、変換過程、比較結果をリセット |
+| 学習サンプルの選択・キャンセル | 入力、結果、巡回位置を保持 |
+| 学習サンプルの適用 | 本文・平文・設定を置換、復号入力と全結果を消去、索引を再構築 |
+| ON/OFF比較 | 独立して先頭位置から計算。通常の結果と巡回位置は保持 |
 | 言語変更 | 再計算せず、構造化した通知と表示だけ更新 |
 | 再読込 | 入力・結果・索引・巡回位置を再初期化 |
 

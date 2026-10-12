@@ -67,6 +67,31 @@
 
     <section id="encryptTab" class="tabcontent active">
       <h2>2) 暗号化</h2>
+      <details class="accordion" open>
+        <summary>学習用サンプル（参照文と平文のセット）</summary>
+        <div class="accordion-content">
+          <p>選択すると内容を確認できます。「この内容で読み込む」で参照文・平文・設定を置き換え、結果と巡回位置を初期化します。</p>
+          <div class="controls">
+            <button type="button" data-learning="complete">全語を変換</button>
+            <button type="button" data-learning="repeat">同じ単語の繰り返し</button>
+            <button type="button" data-learning="missing">未収録語</button>
+            <button type="button" data-learning="normalize">表記と句読点</button>
+          </div>
+          <div id="samplePreview" hidden>
+            <h3 id="sampleTitle"></h3>
+            <p id="sampleSettings"></p>
+            <div class="learning-columns">
+              <div><h4>参照文</h4><pre id="sampleReference" class="learning-text"></pre></div>
+              <div><h4>平文</h4><pre id="samplePlain" class="learning-text"></pre></div>
+            </div>
+            <div class="controls">
+              <button type="button" id="applySampleBtn">この内容で読み込む</button>
+              <button type="button" id="cancelSampleBtn">キャンセル</button>
+            </div>
+          </div>
+          <p id="sampleStatus" class="notes" role="status"></p>
+        </div>
+      </details>
       <div class="preset-buttons">
         <span class="preset-label">プリセット:</span>
         <button class="preset-btn" data-preset="1">短文サンプル</button>
@@ -77,6 +102,7 @@
       <textarea id="plainInput" rows="4" placeholder="例）this is a secret message"></textarea>
       <div class="controls">
         <button id="encryptBtn" disabled>暗号化</button>
+        <button id="compareBtn" disabled>ON/OFFを比較</button>
       </div>
       <div class="output-with-copy">
         <textarea id="cipherOutput" rows="3" readonly aria-label="暗号文の結果"></textarea>
@@ -85,6 +111,37 @@
         </button>
       </div>
       <div id="encryptNotes" class="notes" role="status"></div>
+      <section id="encodingDetails" class="learning-section" hidden>
+        <h3>変換過程</h3>
+        <p id="coverage" class="notes"></p>
+        <p class="help-text">変換できた語数は安全性の評価ではありません。正規化で表記が変わることがあり、単語抽出で句読点や書式が失われます。元の文字との1対1対応ではありません。</p>
+        <label for="normalizedPlain">正規化後の平文（単語抽出前）</label>
+        <textarea id="normalizedPlain" rows="3" readonly></textarea>
+        <div id="traceList" class="learning-list"></div>
+        <div class="controls learning-pager">
+          <button id="tracePrev" type="button">前の50件</button><span id="traceRange"></span><button id="traceNext" type="button">次の50件</button>
+        </div>
+        <h4>未収録語の内訳（初出順）</h4>
+        <div id="missingList" class="learning-list"></div>
+        <div class="controls learning-pager">
+          <button id="missingPrev" type="button">前の50件</button><span id="missingRange"></span><button id="missingNext" type="button">次の50件</button>
+        </div>
+      </section>
+      <p id="compareStatus" class="notes" role="status"></p>
+      <section id="comparisonDetails" class="learning-section" hidden>
+        <h3>ラウンドロビン比較</h3>
+        <p>同じ参照文・平文で、毎回先頭の出現位置から比較します。通常の暗号化結果や巡回位置は変更しません。</p>
+        <p class="help-text">ONは出現位置を順に巡回し、一巡すると戻ります。候補が1か所なら変わりません。どちらの設定も秘密情報の保護には使えません。</p>
+        <div class="learning-columns">
+          <div><label for="compareOn">ON（巡回）</label><textarea id="compareOn" rows="3" readonly></textarea></div>
+          <div><label for="compareOff">OFF（最初の座標）</label><textarea id="compareOff" rows="3" readonly></textarea></div>
+        </div>
+        <p id="compareSummary"></p>
+        <div id="compareList" class="learning-list"></div>
+        <div class="controls learning-pager">
+          <button id="comparePrev" type="button">前の50件</button><span id="compareRange"></span><button id="compareNext" type="button">次の50件</button>
+        </div>
+      </section>
     </section>
 
     <section id="decryptTab" class="tabcontent">
@@ -311,6 +368,7 @@
   </footer>
 
   <script src="core.js"></script>
+  <script src="learning-samples.js"></script>
   <script src="messages.js"></script>
   <script src="static-messages.js"></script>
   <script src="i18n.js"></script>

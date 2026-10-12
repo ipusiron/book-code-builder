@@ -66,18 +66,37 @@
     if (!words.length) fail('noWords');
     const next = new Map(pointers);
     const missing = [];
+    const missingCounts = new Map();
+    const trace = [];
     let length = 0;
     const codes = words.map(word => {
       const locations = book.index.get(word);
-      if (!locations) { missing.push(word); return '{???}'; }
+      if (!locations) {
+        missing.push(word);
+        missingCounts.set(word, (missingCounts.get(word) || 0) + 1);
+        trace.push({ word, occurrences: 0, coordinate: null, code: '{???}' });
+        return '{???}';
+      }
       const pointer = roundRobin ? (next.get(word) || 0) % locations.length : 0;
       const { p, l, w } = locations[pointer];
       if (roundRobin) next.set(word, (pointer + 1) % locations.length);
-      return `${p}:${l}:${w}`;
+      const code = `${p}:${l}:${w}`;
+      trace.push({ word, occurrences: locations.length, coordinate: { p, l, w }, code });
+      return code;
     });
     for (const code of codes) length += code.length;
     if (length + codes.length - 1 > LIMITS.cipher) fail('outputLimit');
-    return { text: codes.join(' '), missing, pointers: next, count: words.length };
+    return { text: codes.join(' '), missing, pointers: next, count: words.length, normalized, trace,
+      missingCounts: Array.from(missingCounts, ([word, count]) => ({ word, count })),
+      encodedCount: words.length - missing.length };
+  }
+  // Independent experiments: both modes always start at the first occurrence.
+  function compare(book, raw) {
+    const on = encode(book, raw, true);
+    const off = encode(book, raw, false);
+    const rows = on.trace.map((entry, i) => ({ word: entry.word, on: entry.code,
+      off: off.trace[i].code, different: entry.code !== off.trace[i].code }));
+    return { on, off, rows, differentCount: rows.filter(row => row.different).length };
   }
   function parseCodeTokens(raw) {
     checkText(raw, LIMITS.cipher);
@@ -107,6 +126,6 @@
   function validateFilename(filename) {
     return typeof filename === 'string' && filename.length <= 200 && /^[a-zA-Z0-9 _'-]+\.txt$/.test(filename);
   }
-  return Object.freeze({ LIMITS, normalizeText, tokenize, positiveInteger, buildIndex, encode, decode,
+  return Object.freeze({ LIMITS, normalizeText, tokenize, positiveInteger, buildIndex, encode, compare, decode,
     parseCodeTokens, validateFilename });
 });
