@@ -207,6 +207,11 @@ let authStopped = false;
 let snapshot = null;
 let statusMessages = new Map();
 const copyTasks = new Map();
+let encodingResult = null;
+let comparisonResult = null;
+let pendingSample = null;
+const learningPages = { trace: 0, missing: 0, compare: 0 };
+const LEARNING_PAGE_SIZE = 50;
 
 function t(key, values = {}) {
   const dictionary = BookCodeMessages[document.documentElement.lang] || BookCodeMessages.ja;
@@ -220,6 +225,14 @@ function note(selector, key, values = {}, type = 'info') {
 
 function resetResult(kind) {
   const encrypting = kind === 'encrypt';
+  if (encrypting) {
+    encodingResult = null;
+    comparisonResult = null;
+    learningPages.trace = learningPages.missing = learningPages.compare = 0;
+    $('#compareStatus').textContent = '';
+    statusMessages.delete('#compareStatus');
+    renderLearning();
+  }
   $(encrypting ? '#cipherOutput' : '#plainOutput').value = '';
   const selector = encrypting ? '#copyCipherBtn' : '#copyPlainBtn';
   copyTasks.delete(selector);
@@ -350,12 +363,14 @@ function encrypt() {
   try {
     const result = BookCodeCore.encode(book, $('#plainInput').value, state.useRoundRobin, state.rr);
     state.rr = result.pointers;
+    encodingResult = result;
     $('#cipherOutput').value = result.text;
     updateCopyCipherButton();
     $('#syncCipherBtn').disabled = false;
     if (result.missing.length) {
-      note('#encryptNotes', 'missing', { n: result.missing.length, words: result.missing.slice(0, 10).join(', ') }, 'warning');
+      note('#encryptNotes', 'missingSummary', { n: result.missing.length, unique: result.missingCounts.length }, 'warning');
     } else note('#encryptNotes', 'encoded', { n: result.count }, 'success');
+    renderLearning();
   } catch (error) {
     note('#encryptNotes', BookCodeMessages.ja['error_' + error.message] ? 'error_' + error.message : 'error_unknown', {}, 'error');
   }
@@ -393,6 +408,131 @@ function syncCipher() {
 function updateEncryptButton() {
   const plainInput = $('#plainInput').value.trim();
   $('#encryptBtn').disabled = !plainInput || !state.ready || state.building;
+  $('#compareBtn').disabled = $('#encryptBtn').disabled;
+}
+
+// Learning views render stored results only; rendering never consumes cycle positions.
+function learningText(tag, text, className = '') {
+  const element = document.createElement(tag);
+  element.textContent = text;
+  element.className = className;
+  return element;
+}
+
+function renderLearningPage(kind, rows, renderRow) {
+  const container = $('#' + kind + 'List');
+  container.replaceChildren();
+  const last = Math.max(0, Math.ceil(rows.length / LEARNING_PAGE_SIZE) - 1);
+  learningPages[kind] = Math.min(last, Math.max(0, learningPages[kind]));
+  const start = learningPages[kind] * LEARNING_PAGE_SIZE;
+  rows.slice(start, start + LEARNING_PAGE_SIZE).forEach((row, i) => container.append(renderRow(row, start + i)));
+  $('#' + kind + 'Range').textContent = t('learningRange', {
+    start: rows.length ? start + 1 : 0, end: Math.min(start + LEARNING_PAGE_SIZE, rows.length), total: rows.length });
+  $('#' + kind + 'Prev').disabled = learningPages[kind] === 0;
+  $('#' + kind + 'Next').disabled = learningPages[kind] === last;
+}
+
+function renderLearning() {
+  $('#encodingDetails').hidden = !encodingResult;
+  $('#comparisonDetails').hidden = !comparisonResult;
+  $('#normalizedPlain').value = encodingResult?.normalized || '';
+  $('#compareOn').value = comparisonResult?.on.text || '';
+  $('#compareOff').value = comparisonResult?.off.text || '';
+  if (encodingResult) {
+    const result = encodingResult;
+    $('#coverage').textContent = t('coverage', { encoded: result.encodedCount, total: result.count,
+      missing: result.missing.length, unique: result.missingCounts.length });
+    renderLearningPage('trace', result.trace, (entry, i) => {
+      const row = learningText('div', '', 'learning-row');
+      row.append(learningText('p', `${i + 1}. ${entry.word}`, 'learning-word'));
+      row.append(learningText('p', t('traceOccurrences', { n: entry.occurrences })));
+      if (entry.coordinate) {
+        const button = learningText('button', t('showCoordinate', { code: entry.code }));
+        button.type = 'button';
+        button.addEventListener('click', () => showLearningCoordinate(entry));
+        row.append(button);
+      } else row.append(learningText('p', t('traceMissing'), 'notes warning'));
+      return row;
+    });
+    renderLearningPage('missing', result.missingCounts, entry =>
+      learningText('p', t('missingCount', { word: entry.word, n: entry.count }), 'learning-row'));
+    if (!result.missing.length) $('#missingList').textContent = t('noMissing');
+  } else {
+    $('#traceList').replaceChildren();
+    $('#missingList').replaceChildren();
+    $('#coverage').textContent = '';
+  }
+  if (comparisonResult) {
+    $('#compareSummary').textContent = t('comparisonSummary', {
+      total: comparisonResult.rows.length, n: comparisonResult.differentCount });
+    renderLearningPage('compare', comparisonResult.rows, (entry, i) => {
+      const row = learningText('div', '', 'learning-row' + (entry.different ? ' different' : ''));
+      row.append(learningText('p', `${i + 1}. ${entry.word}`, 'learning-word'));
+      row.append(learningText('p', `ON: ${entry.on} / OFF: ${entry.off}`));
+      row.append(learningText('p', t(entry.different ? 'differentCoordinate' : 'sameCode')));
+      return row;
+    });
+  } else {
+    $('#compareList').replaceChildren();
+    $('#compareSummary').textContent = '';
+  }
+}
+
+function compareRoundRobin() {
+  comparisonResult = null;
+  learningPages.compare = 0;
+  renderLearning();
+  if (!isReady()) { note('#compareStatus', 'needBuild', {}, 'warning'); return; }
+  try {
+    comparisonResult = BookCodeCore.compare(book, $('#plainInput').value);
+    note('#compareStatus', 'compared', {}, 'success');
+    renderLearning();
+  } catch (error) {
+    note('#compareStatus', BookCodeMessages.ja['error_' + error.message] ? 'error_' + error.message : 'error_unknown', {}, 'error');
+  }
+}
+
+function showLearningCoordinate(entry) {
+  if (!isReady() || !entry.coordinate) return;
+  $('#tab-viewerTab').click();
+  const { p, l, w } = entry.coordinate;
+  // Start with the selected word even if its line exceeds the viewer word budget.
+  renderViewer(p, l, Math.floor((w - 1) / BookCodeCore.LIMITS.viewWords) * BookCodeCore.LIMITS.viewWords + 1);
+  const button = $$('#viewer .word').find(element => element.dataset.coord === entry.code);
+  if (button) { button.click(); button.focus(); }
+}
+
+function renderSamplePreview() {
+  $('#samplePreview').hidden = !pendingSample;
+  if (!pendingSample) return;
+  $('#sampleTitle').textContent = t('sample_' + pendingSample.id);
+  $('#sampleSettings').textContent = t('sampleSettings');
+  $('#sampleReference').textContent = pendingSample.reference;
+  $('#samplePlain').textContent = pendingSample.plain;
+}
+
+function chooseLearningSample(id) {
+  pendingSample = BookCodeLearningSamples.find(sample => sample.id === id) || null;
+  renderSamplePreview();
+  if (pendingSample) $('#applySampleBtn').focus();
+}
+
+function applyLearningSample() {
+  if (!pendingSample) return;
+  const sample = pendingSample;
+  invalidateBook();
+  $('#referenceText').value = sample.reference;
+  $('#plainInput').value = sample.plain;
+  $('#cipherInput').value = '';
+  $('#linesPerPage').value = sample.lpp;
+  $('#normalizeCase').checked = sample.lower;
+  $('#normalizeNFKC').checked = sample.nfkc;
+  $('#useRoundRobin').checked = sample.roundRobin;
+  pendingSample = null;
+  renderSamplePreview();
+  buildIndex();
+  note('#sampleStatus', 'sampleApplied', {}, 'success');
+  $('#plainInput').focus();
 }
 
 function updateDecryptButton() {
@@ -461,7 +601,7 @@ function decrypt() {
  * - Shows the first 100 coordinates where this word appears
  * - Highlights current coordinate in the list
  */
-function renderViewer(pageNum, lineNum) {
+function renderViewer(pageNum, lineNum, wordStart = 1) {
   const viewer = $('#viewer');
   viewer.replaceChildren();
   $('#viewerSelection').classList.add('hidden');
@@ -482,6 +622,7 @@ function renderViewer(pageNum, lineNum) {
   }
   $('#viewPage').value = p;
   $('#viewLine').value = first;
+  state.viewWordStart = wordStart;
   const page = state.structure[p - 1];
   const limits = BookCodeCore.LIMITS;
   let wordCount = 0;
@@ -494,7 +635,7 @@ function renderViewer(pageNum, lineNum) {
     label.textContent = '[' + p + ':' + (i + 1) + '] ';
     line.append(label);
     const words = page[i];
-    for (let w = 0; w < words.length && wordCount < limits.viewWords; w++) {
+    for (let w = i === first - 1 ? wordStart - 1 : 0; w < words.length && wordCount < limits.viewWords; w++) {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'word';
@@ -513,7 +654,7 @@ function renderViewer(pageNum, lineNum) {
     lineCount++;
   }
   const remaining = page.slice(first - 1).reduce((n, line) => n + line.length, 0);
-  if (wordCount < remaining || lineCount < page.length - first + 1) {
+  if (wordStart > 1 || wordCount < remaining || lineCount < page.length - first + 1) {
     const hint = document.createElement('p');
     hint.className = 'notes warning';
     hint.textContent = t('viewerLimit');
@@ -596,12 +737,14 @@ function refreshLanguage() {
     button.textContent = BookCodeMessages.ja[key] ? t(key) : button.dataset.title;
   });
   const selected = state.selection;
-  renderViewer($('#viewPage').value, $('#viewLine').value);
+  renderViewer($('#viewPage').value, $('#viewLine').value, state.viewWordStart || 1);
   state.selection = selected;
   if (selected) {
     $$('#viewer .word').forEach(button => button.classList.toggle('active', button.dataset.coord === selected.coord));
     renderSelection();
   }
+  renderLearning();
+  renderSamplePreview();
 }
 
 // -------------------- Plaintext Presets --------------------
@@ -784,6 +927,21 @@ async function init() {
   // Bind controls
   $('#buildBtn').addEventListener('click', buildIndex);
   $('#encryptBtn').addEventListener('click', encrypt);
+  $('#compareBtn').addEventListener('click', compareRoundRobin);
+  $$('[data-learning]').forEach(button => button.addEventListener('click', () => chooseLearningSample(button.dataset.learning)));
+  $('#applySampleBtn').addEventListener('click', applyLearningSample);
+  $('#cancelSampleBtn').addEventListener('click', () => {
+    const id = pendingSample?.id;
+    pendingSample = null;
+    renderSamplePreview();
+    const button = $$('[data-learning]').find(element => element.dataset.learning === id);
+    if (button) button.focus();
+  });
+  for (const kind of ['trace', 'missing', 'compare']) {
+    for (const [suffix, delta] of [['Prev', -1], ['Next', 1]]) {
+      $('#' + kind + suffix).addEventListener('click', () => { learningPages[kind] += delta; renderLearning(); });
+    }
+  }
   $('#decryptBtn').addEventListener('click', decrypt);
 
   // Preset buttons

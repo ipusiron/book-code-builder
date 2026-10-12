@@ -20,6 +20,7 @@ function harness() {
   const document = { documentElement: { lang: 'ja' }, querySelector: element, querySelectorAll: () => [],
     createElement: () => element('created'), createTextNode: text => text, addEventListener() {} };
   const context = vm.createContext({ document, BookCodeCore: C, BookCodeMessages: require('../messages.js'),
+    BookCodeLearningSamples: require('../learning-samples.js'),
     navigator: {}, setTimeout: callback => { const timer = { callback }; timers.push(timer); return timer; },
     clearTimeout: timer => { if (timer) timer.callback = null; }, console,
     location: { protocol: 'file:' }, AbortController });
@@ -125,4 +126,51 @@ test('late clipboard response cannot enable an invalidated result', async () => 
   resolve(); await new Promise(r => setImmediate(r)); h.flush();
   assert.equal(h.element('#copyCipherBtn').disabled, true);
   assert.equal(h.element('#cipherOutput').value, '');
+});
+
+test('learning views and comparison preserve actual encoding and normal pointers', () => {
+  const h = harness(); h.run('buildIndex()'); h.flush();
+  h.element('#plainInput').value = 'alpha'; h.run('encrypt()');
+  const before = h.run('JSON.stringify(Array.from(state.rr))');
+  h.run('compareRoundRobin(); refreshLanguage(); renderLearning();');
+  assert.equal(h.run('JSON.stringify(Array.from(state.rr))'), before);
+  assert.equal(h.element('#cipherOutput').value, '1:1:1');
+  assert.equal(h.element('#compareOn').value, '1:1:1');
+  h.run('encrypt()');
+  assert.equal(h.element('#cipherOutput').value, '1:2:2');
+  assert.equal(h.run('encodingResult.trace[0].code'), '1:2:2');
+});
+
+test('source invalidation clears trace, comparison and derived text', () => {
+  const h = harness(); h.run('buildIndex()'); h.flush();
+  h.element('#plainInput').value = 'alpha hello'; h.run('encrypt(); compareRoundRobin(); invalidateBook();');
+  assert.equal(h.run('encodingResult'), null);
+  assert.equal(h.run('comparisonResult'), null);
+  assert.equal(h.element('#normalizedPlain').value, '');
+  assert.equal(h.element('#compareOn').value, '');
+  assert.equal(h.element('#compareBtn').disabled, true);
+});
+
+test('sample selection does not mutate input and explicit apply resets both inputs and options', () => {
+  const h = harness(); h.run('buildIndex()'); h.flush();
+  const before = h.element('#referenceText').value;
+  h.element('#cipherInput').value = '1:1:1';
+  h.run("chooseLearningSample('repeat')");
+  assert.equal(h.element('#referenceText').value, before);
+  assert.equal(h.element('#cipherInput').value, '1:1:1');
+  h.run('applyLearningSample()'); h.flush();
+  assert.equal(h.element('#cipherInput').value, '');
+  assert.equal(h.run('state.rr.size'), 0);
+  assert.equal(h.run('book.lpp'), 2);
+  h.run('encrypt()');
+  assert.equal(h.element('#cipherOutput').value, '1:1:1 2:1:2 1:1:1 1:1:2 2:2:2');
+});
+
+test('invalid comparison clears only its own result and does not advance pointers', () => {
+  const h = harness(); h.run('buildIndex()'); h.flush();
+  h.element('#plainInput').value = 'alpha'; h.run('encrypt(); compareRoundRobin();');
+  h.element('#plainInput').value = '!!!'; h.run('compareRoundRobin()');
+  assert.equal(h.run('comparisonResult'), null);
+  assert.equal(h.run('state.rr.get("alpha")'), 1);
+  assert.equal(h.element('#compareOn').value, '');
 });

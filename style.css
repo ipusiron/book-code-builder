@@ -929,6 +929,22 @@ textarea:focus-visible {
    ======================================== */
 
 /* Input and output layout remains usable before desktop enhancements. */
+[hidden] { display: none !important; }
+.learning-section { margin-block: 1.5rem; border-top: 1px solid var(--border); padding-top: 1rem; }
+.learning-columns { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+.learning-columns > *, .learning-list, .learning-row { min-width: 0; }
+.learning-text { white-space: pre-wrap; overflow-wrap: anywhere; padding: 0.75rem; background: var(--bg); color: var(--fg); }
+.learning-list { display: grid; gap: 0.5rem; margin-block: 1rem; }
+.learning-row { border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; overflow-wrap: anywhere; }
+.learning-row p { margin-block: 0.25rem; }
+.learning-word { font-weight: 600; }
+.learning-row.different { border-inline-start: 4px solid var(--accent); background: var(--info-bg); }
+.learning-row button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.learning-pager { justify-content: space-between; }
+.learning-pager span { overflow-wrap: anywhere; }
+@media (min-width: 600px) {
+  .learning-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 input[type="number"] {
   background: var(--panel);
   color: var(--fg);
