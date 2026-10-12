@@ -46,7 +46,7 @@
     coverage: 'Encoded: {encoded} / {total} words. Missing: {missing} occurrences of {unique} distinct words.',
     learningRange: '{start}–{end} / {total} entries', traceOccurrences: 'Occurrences in the reference: {n}',
     showCoordinate: 'View {code} in the reference', traceMissing: 'Missing → {???}',
-    missingCount: '{word}: {n} occurrences', noMissing: 'No missing words.',
+    missingCount: 'Occurrences of {word}: {n}', noMissing: 'No missing words.',
     comparisonSummary: 'Coordinates differ between ON and OFF for {n} of {total} words.',
     differentCoordinate: 'Different coordinates', sameCode: 'Same output',
     compared: 'Compared from the first occurrence. Normal cycle positions are unchanged.',

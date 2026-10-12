@@ -69,6 +69,14 @@ Normal HTTP requests fetch the page, scripts and preset files.
 
 The English encoding screen in the light theme.
 
+![Selected coordinates and missing words](assets/en/screenshot-learning.png)
+
+Inspect normalized plaintext, each word's coordinate and missing-word counts.
+
+![Round-robin ON and OFF comparison](assets/en/screenshot-compare.png)
+
+Compare from the first occurrence without changing normal cycle positions.
+
 ![Codebook viewer in the dark theme](assets/en/screenshot-viewer.png)
 
 Select a word to inspect its occurrence count and coordinates. The dark theme follows your system setting.
@@ -85,6 +93,12 @@ Basic browser skills are sufficient. The examples use English, but Unicode lette
 This is not a linguistic segmentation tool or an attack-success measurement tool.
 
 ## 💡 Usage scenarios
+
+Ways of using this tool in particular:
+
+- Learning about search preprocessing: in the Spelling and punctuation sample, `ＡＬＰＨＡ, Alpha!` becomes 2 occurrences of `alpha`. Distinguish spelling normalization from punctuation removal; this does not restore the original text.
+- Preparing vocabulary exercises: the Missing words sample encodes only 1 of 6 words, with 5 missing occurrences of 2 distinct words. Check whether a reference contains the words you need; synonyms and meaning are not evaluated.
+- Learning cyclic allocation: the Repeated words comparison changes the coordinate for only 1 of 5 words between ON and OFF. Observe how a finite set wraps around; this is not an evaluation of randomness or fair load balancing.
 
 ### Scenario 1: A classroom exercise
 
@@ -189,6 +203,8 @@ A long book, a dictionary or varied vocabulary does not guarantee security.
 - Build an index from any reference text and convert between `p:l:w` coordinates and normalized word sequences
 - Three book presets, three plaintext samples, lines-per-page and normalization settings
 - Round-robin on/off, missing-word and invalid-coordinate notices
+- Actual conversion traces, missing-word occurrence and distinct-word counts, and independent ON/OFF comparison
+- 4 paired reference/plaintext learning samples with a preview before loading
 - Page, line, word and unique-word counts; line selection; word occurrence counts and coordinates
 - Invalidate results when their inputs or settings change, and prevent stale loading responses
 - Sync ciphertext and report clipboard success, failure or lack of support
@@ -209,6 +225,36 @@ A long book, a dictionary or varied vocabulary does not guarantee security.
 Changing the reference text, lines per page or normalization invalidates the index and both results. Conversion is disabled until rebuilding.
 Editing plaintext or ciphertext, loading a plaintext sample or syncing clears the corresponding stale result.
 A failed book load preserves the reference text, but the index must be rebuilt.
+
+### Learning samples and conversion traces
+
+Learning samples in the Encode tab are expanded initially.
+Select a sample, review its reference, plaintext and settings, then click Load this sample.
+Selection alone does not change inputs. Cancel preserves the current inputs and results.
+Confirming replaces the reference and plaintext, sets 2 lines per page, and turns Ignore case, NFKC and round-robin ON.
+It clears the decoding input, all results and cycle positions, then builds the index.
+
+| Sample | Result to inspect |
+|---|---|
+| Encode all words | All 4 words encoded |
+| Repeated words | Of 5 words, 1 has different coordinates between ON and OFF |
+| Missing words | Of 6 words, 1 is encoded. Missing: 5 occurrences of 2 distinct words. hello occurs 2 times and world 3 times |
+| Spelling and punctuation | After normalization and tokenization: 3 words, alpha, alpha, beta |
+
+Encode displays normalized plaintext and each word's occurrence count and selected coordinate.
+Coordinate buttons open the corresponding word in the viewer.
+Missing words are grouped in first-seen order. The number of encoded words is not a security rating.
+Each list shows 50 entries per page; use the previous/next buttons to inspect every entry.
+
+### Round-robin comparison
+
+Compare ON/OFF uses the current reference and plaintext, starting both modes at the first occurrence every time.
+It does not change normal encoding results or cycle positions. Its starting position may differ from repeated normal encodings.
+Differences are marked with both color and the label Different coordinates.
+A word with 1 occurrence always uses the same coordinate; cycling wraps around. This is not a security score.
+
+Changing the reference, settings or plaintext clears the learning views. Language switching preserves results without recalculating.
+JSON saving/loading, automatic replacement and linguistic segmentation are not implemented.
 
 ### Small reproducible example
 
@@ -363,8 +409,12 @@ book-code-builder/
 ├── assets/
 │   ├── en/
 │   │   ├── screenshot.png
+│   │   ├── screenshot-learning.png
+│   │   ├── screenshot-compare.png
 │   │   └── screenshot-viewer.png
 │   ├── screenshot.png
+│   ├── screenshot-learning.png
+│   ├── screenshot-compare.png
 │   └── screenshot-viewer.png
 ├── data/
 │   ├── manifest.json
@@ -377,6 +427,7 @@ book-code-builder/
 ├── core.js                   # DOM-independent computation
 ├── i18n.js                   # Language selection and static text
 ├── index.html
+├── learning-samples.js       # Paired reference/plaintext learning samples
 ├── LICENSE
 ├── messages.js               # Dynamic messages
 ├── package.json

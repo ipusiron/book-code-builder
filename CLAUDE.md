@@ -25,6 +25,7 @@ Do not add dependencies or change book texts just to make tests pass.
 ## Architecture
 
 - core.js: UMD/CommonJS pure functions, validation and LIMITS
+- learning-samples.js: four immutable paired reference/plaintext examples with explicit settings
 - script.js: input snapshot, build/load revisions, clipboard tasks, tabs and viewer
 - messages.js: Japanese/English dynamic strings and book titles
 - static-messages.js: static UI translations keyed by Japanese source text
@@ -33,6 +34,8 @@ Do not add dependencies or change book texts just to make tests pass.
 
 The core returns structure[page][line][word] (zero-based internally), index Map of words to one-based coordinates, normalizedLines and totals.
 encode returns a new pointer Map; the caller commits it only on success.
+It also returns normalized plaintext, actual selection trace, grouped missingCounts and encodedCount.
+compare starts each mode with an empty pointer Map and must never consume normal cycle positions.
 The UI snapshot includes the reference text, lines per page and both normalization flags.
 
 ## Coordinate convention
@@ -55,6 +58,9 @@ Changing this convention or bundled text changes coordinates and requires explic
 - Editing plaintext/ciphertext, samples and sync clears the corresponding stale result.
 - Round-robin toggling resets cycle positions and the encoded result.
 - Language switching must preserve input, output, snapshot, cycle positions and viewer selection.
+- Trace/comparison views are stored results, not re-encodings. Render at most 50 entries per list page.
+- Clear learning views with plaintext/reference/settings mutations. Compare must not replace normal output.
+- Paired sample selection is preview-only. Apply explicitly replaces reference/plaintext/settings, clears decoding input/results/cycles and rebuilds, cancelling stale loads.
 - Old build callbacks or file responses must never overwrite newer input.
 - A failed load preserves the input; rebuilding is required.
 - Late clipboard completions cannot reactivate invalid results.
